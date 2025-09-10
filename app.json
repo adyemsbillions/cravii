@@ -16,7 +16,9 @@
         "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.adyemscravii.cravii",
+      "versionCode": 1
     },
     "web": {
       "bundler": "metro",

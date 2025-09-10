@@ -110,7 +110,13 @@ const RecipeCard = memo(
       />
       <View style={styles.recipeInfo}>
         <Text style={styles.recipeName}>{result.name}</Text>
-        <Text style={styles.recipeDescription}>{result.description}</Text>
+        <Text 
+          style={styles.recipeDescription}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
+          {result.description}
+        </Text>
         <Text style={styles.recipePrice}>₦{result.price}</Text>
       </View>
     </TouchableOpacity>
@@ -572,14 +578,18 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   recipeList: {
-    paddingHorizontal: 20,
+    flexDirection: 'row', // Arrange cards in a row
+    flexWrap: 'wrap', // Allow wrapping to next line
+    paddingHorizontal: 10,
     paddingBottom: 20,
+    justifyContent: 'space-between', // Space cards evenly
   },
   recipeCard: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    width: '100%',
-    marginBottom: 20,
+    width: (width - 40) / 2, // Two cards per row with padding
+    marginHorizontal: 5, // Space between cards
+    marginBottom: 20, // Space between rows
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -589,13 +599,13 @@ const styles = StyleSheet.create({
   },
   recipeImage: {
     width: '100%',
-    height: 200,
+    height: 120, // Reduced height
     resizeMode: 'cover',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
   recipeInfo: {
-    padding: 15,
+    padding: 10, // Reduced padding
   },
   recipeName: {
     fontSize: 18,
@@ -604,7 +614,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   recipeDescription: {
-    fontSize: 13,
+    fontSize: 12, // Reduced font size
     color: '#666',
     marginBottom: 10,
   },
@@ -618,6 +628,7 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 20,
+    width: '100%', // Ensure it spans the container
   },
   bottomNav: {
     flexDirection: 'row',

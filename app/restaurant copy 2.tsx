@@ -1,5 +1,4 @@
-
-import { Feather, Ionicons } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { memo, useEffect, useState } from 'react';
@@ -54,7 +53,7 @@ interface ApiResponse<T> {
 
 // Reusable RecipeCard component
 const RecipeCard = memo(
-  ({ recipe, onPress, onAddToCart, isMoreRecipes }: { recipe: Recipe; onPress: () => void; onAddToCart: () => void; isMoreRecipes?: boolean }) => (
+  ({ recipe, onPress, isMoreRecipes }: { recipe: Recipe; onPress: () => void; isMoreRecipes?: boolean }) => (
     <TouchableOpacity
       style={isMoreRecipes ? styles.moreRecipeCard : styles.recipeCard}
       onPress={onPress}
@@ -75,18 +74,14 @@ const RecipeCard = memo(
       </TouchableOpacity>
       <View style={[styles.recipeInfo, isMoreRecipes ? styles.moreRecipeInfo : {}]}>
         <Text style={[styles.recipeName, isMoreRecipes ? styles.moreRecipeName : {}]}>{recipe.name}</Text>
-        <Text
-          style={[styles.recipeDescription, isMoreRecipes ? styles.moreRecipeDescription : {}]}
-          numberOfLines={2}
-          ellipsizeMode="tail"
-        >
+        <Text style={[styles.recipeDescription, isMoreRecipes ? styles.moreRecipeDescription : {}]}>
           {recipe.description}
         </Text>
         <View style={styles.recipeFooter}>
           <Text style={[styles.recipePrice, isMoreRecipes ? styles.moreRecipePrice : {}]}>
             {`₦${recipe.price || '0.00'}`}
           </Text>
-          <TouchableOpacity style={styles.addIcon} onPress={onAddToCart}>
+          <TouchableOpacity style={styles.addIcon}>
             <Feather name="plus" size={isMoreRecipes ? 16 : 16} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -110,9 +105,6 @@ export default function Dashboard() {
   // State for search
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  // State for cart and notification counts
-  const [cartCount, setCartCount] = useState(0);
-  const [notificationCount, setNotificationCount] = useState(0);
 
   // Shuffle function to randomize array
   const shuffleArray = (array: Recipe[]): Recipe[] => {
@@ -158,27 +150,7 @@ export default function Dashboard() {
     }
   };
 
-  // Add to cart function
-  const addToCart = async (recipe: Recipe) => {
-    try {
-      const cart = await AsyncStorage.getItem('cart');
-      let cartItems = cart ? JSON.parse(cart) : [];
-      const existingItem = cartItems.find((item: Recipe & { quantity: number }) => item.id === recipe.id);
-      if (existingItem) {
-        existingItem.quantity += 1;
-      } else {
-        cartItems.push({ ...recipe, quantity: 1 });
-      }
-      await AsyncStorage.setItem('cart', JSON.stringify(cartItems));
-      const totalItems = cartItems.reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
-      setCartCount(totalItems);
-      console.log('Added to cart:', recipe.name);
-    } catch (error) {
-      console.error('Error adding to cart:', error);
-    }
-  };
-
-  // Fetch user data, dynamic content, cart count, and notification count on mount
+  // Fetch user data and dynamic content on mount
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -225,33 +197,15 @@ export default function Dashboard() {
           console.log('Fetched Recipes:', recipesResult.data);
           const fetchedRecipes = recipesResult.data || [];
           setAllRecipes(fetchedRecipes);
+          // Set popular recipes (first 5 for display)
           setPopularRecipes(fetchedRecipes.slice(0, 5));
+          // Set more recipes (up to 20, shuffled)
           setMoreRecipes(shuffleArray(fetchedRecipes));
         } else {
           console.error('Failed to fetch recipes:', recipesResult.message);
           setAllRecipes([]);
           setPopularRecipes([]);
           setMoreRecipes([]);
-        }
-
-        // Fetch cart count
-        const cart = await AsyncStorage.getItem('cart');
-        const cartItems = cart ? JSON.parse(cart) : [];
-        const totalItems = cartItems.reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
-        setCartCount(totalItems);
-
-        // Fetch notification count
-        const notificationsResponse = await fetch(`https://cravii.ng/cravii/api/get_notifications.php?user_id=${id}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        const notificationsResult = await notificationsResponse.json();
-        if (notificationsResult.success) {
-          const unreadCount = notificationsResult.data.filter((notification: { is_read: boolean }) => !notification.is_read).length;
-          setNotificationCount(unreadCount);
-        } else {
-          console.error('Failed to fetch notifications:', notificationsResult.message);
-          setNotificationCount(0);
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -267,8 +221,8 @@ export default function Dashboard() {
         console.log('Shuffling more recipes');
         setMoreRecipes(shuffleArray(allRecipes));
       }
-    }, 3600 * 1000); // Every hour
-    return () => clearInterval(interval);
+    }, 3600 * 1000); // Every hour (3600 seconds)
+    return () => clearInterval(interval); // Cleanup on unmount
   }, [allRecipes, searchQuery]);
 
   return (
@@ -282,9 +236,7 @@ export default function Dashboard() {
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
           <View style={styles.userInfo}>
-            <TouchableOpacity onPress={() => router.push('/profile')} accessibilityRole="button" accessibilityLabel="Go to profile">
-              <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
-            </TouchableOpacity>
+            <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
             <View>
               <Text style={styles.greeting}>Hello {name || 'User'}</Text>
               <View style={styles.location}>
@@ -293,20 +245,8 @@ export default function Dashboard() {
               </View>
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={() => router.push('/notification')}
-            accessibilityRole="button"
-            accessibilityLabel="View notifications"
-          >
-            <View style={styles.navIconContainer}>
-              <Feather name="bell" size={24} color="#ff5722" />
-              {notificationCount > 0 && (
-                <View style={styles.navBadge}>
-                  <Text style={styles.navBadgeText}>{notificationCount}</Text>
-                </View>
-              )}
-            </View>
+          <TouchableOpacity style={styles.notificationButton}>
+            <Feather name="bell" size={24} color="#333" />
           </TouchableOpacity>
         </View>
 
@@ -326,6 +266,7 @@ export default function Dashboard() {
               <Feather name="search" size={20} color="#666" style={styles.searchIcon} />
             </TouchableOpacity>
           </View>
+          {/* Suggestions as plain text */}
           {suggestions.length > 0 && (
             <View style={styles.suggestionsContainer}>
               {suggestions.map((suggestion, index) => (
@@ -349,11 +290,8 @@ export default function Dashboard() {
             <Text style={styles.promoTitle}>
               Fast Bites<Text>{"\n"}</Text>Faster Orders.
             </Text>
-            <Text style={styles.promoSubtitle}>Satisfy Your Cravings</Text>
-            <TouchableOpacity
-              style={styles.orderNowButton}
-              onPress={() => router.push('/order-now')}
-            >
+            <Text style={styles.promoSubtitle}>Up to 3 times per day</Text>
+            <TouchableOpacity style={styles.orderNowButton}>
               <Text style={styles.orderNowButtonText}>Order Now</Text>
             </TouchableOpacity>
           </View>
@@ -364,7 +302,7 @@ export default function Dashboard() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Service Categories</Text>
           <TouchableOpacity>
-            <Ionicons name="arrow-forward" size={20} color="black" />
+            <Text style={styles.seeMoreText}>See More</Text>
           </TouchableOpacity>
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
@@ -400,7 +338,7 @@ export default function Dashboard() {
         {/* Popular Recipes */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Popular Recipes</Text>
-          <TouchableOpacity onPress={() => router.push('/order-now')}>
+          <TouchableOpacity>
             <Text style={styles.seeMoreText}>See More</Text>
           </TouchableOpacity>
         </View>
@@ -415,7 +353,6 @@ export default function Dashboard() {
                   params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
                 })
               }
-              onAddToCart={() => addToCart(recipe)}
             />
           ))}
         </ScrollView>
@@ -423,7 +360,7 @@ export default function Dashboard() {
         {/* More Recipes */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>More Recipes</Text>
-          <TouchableOpacity onPress={() => router.push('/order-now')}>
+          <TouchableOpacity>
             <Text style={styles.seeMoreText}>See More</Text>
           </TouchableOpacity>
         </View>
@@ -440,7 +377,6 @@ export default function Dashboard() {
                     params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
                   })
                 }
-                onAddToCart={() => addToCart(recipe)}
               />
             ))
           ) : (
@@ -460,14 +396,7 @@ export default function Dashboard() {
           <Text style={styles.navText}>Search</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => router.push('/cart')}>
-          <View style={styles.navIconContainer}>
-            <Feather name="shopping-cart" size={24} color="#999" />
-            {cartCount > 0 && (
-              <View style={styles.navBadge}>
-                <Text style={styles.navBadgeText}>{cartCount}</Text>
-              </View>
-            )}
-          </View>
+          <Feather name="shopping-cart" size={24} color="#999" />
           <Text style={styles.navText}>My Cart</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={() => router.push('/profile')}>
@@ -534,7 +463,12 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
   notificationButton: {
-    position: 'relative',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchSection: {
     paddingHorizontal: 20,
@@ -693,16 +627,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   recipeList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
     paddingHorizontal: 10,
     paddingBottom: 30,
-    justifyContent: 'space-between',
+    alignItems: 'center', // Center cards horizontally
   },
   recipeCard: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    width: width * 0.6,
+    width: width * 0.6, // For Popular Recipes (horizontal)
     marginRight: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -714,26 +646,26 @@ const styles = StyleSheet.create({
   moreRecipeCard: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    width: (width - 40) / 2,
-    marginHorizontal: 5,
-    marginBottom: 20,
+    width: Math.min(Math.max(width * 0.85, 300), 400), // Larger, responsive width
+    marginBottom: 30, // Spacing between cards
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 5,
     overflow: 'hidden',
+    alignSelf: 'center', // Center each card
   },
   recipeImage: {
     width: '100%',
-    height: 150,
+    height: 150, // For Popular Recipes
     resizeMode: 'cover',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
   moreRecipeImage: {
     width: '100%',
-    height: 120,
+    height: 130, // Larger height for More Recipes
     resizeMode: 'cover',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
@@ -753,7 +685,7 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   moreRecipeInfo: {
-    padding: 10,
+    padding: 15, // Adjusted padding
   },
   recipeName: {
     fontSize: 18,
@@ -762,15 +694,15 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   moreRecipeName: {
-    fontSize: 17,
+    fontSize: 17, // Adjusted font
   },
   recipeDescription: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
     marginBottom: 10,
   },
   moreRecipeDescription: {
-    fontSize: 12,
+    fontSize: 13, // Adjusted font
   },
   recipeFooter: {
     flexDirection: 'row',
@@ -784,7 +716,7 @@ const styles = StyleSheet.create({
     color: '#e63946',
   },
   moreRecipePrice: {
-    fontSize: 17,
+    fontSize: 17, // Adjusted font
   },
   addIcon: {
     backgroundColor: '#ff5722',
@@ -799,7 +731,6 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 20,
-    width: '100%',
   },
   bottomNav: {
     flexDirection: 'row',
@@ -834,24 +765,5 @@ const styles = StyleSheet.create({
     color: '#ff5722',
     marginTop: 4,
     fontWeight: '700',
-  },
-  navIconContainer: {
-    position: 'relative',
-  },
-  navBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -10,
-    backgroundColor: '#ff5722',
-    borderRadius: 10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  navBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
   },
 });
