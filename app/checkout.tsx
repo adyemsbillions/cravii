@@ -158,7 +158,7 @@ export default function Checkout() {
   const calculateTotal = (items: CartItem[]) => {
     if (!fee) return;
     const subtotal = items.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
-    const vatFee = parseFloat(fee.vat_fee) * items.length;
+    const vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
     const paystackFee = subtotal >= 2500 ? (subtotal * 0.015) + 100 : 0;
     const deliveryFee = parseFloat(fee.delivery_fee);
     const totalVatFee = isCouponValid ? vatFee * 0.8 : vatFee;
@@ -198,17 +198,6 @@ export default function Checkout() {
         setIsCouponValid(true);
         calculateTotal(cartItems);
         Alert.alert('Success', 'Coupon applied! 20% off VAT.', [{ text: 'OK' }]);
-        // if (result.referrer_id) {
-        //   await fetchWithRetry('https://cravii.ng/cravii/api/record_referral.php', {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     credentials: 'include',
-        //     body: JSON.stringify({
-        //       referrer_id: result.referrer_id,
-        //       referred_user_id: userId,
-        //     }),
-        //   });
-        // }
       } else {
         setIsCouponValid(false);
         calculateTotal(cartItems);
@@ -243,7 +232,7 @@ export default function Checkout() {
 
     calculateTotal(cartItems);
     const subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
-    const vatFee = parseFloat(fee.vat_fee) * cartItems.length;
+    const vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
     const paystackFee = subtotal >= 2500 ? (subtotal * 0.015) + 100 : 0;
     const totalVatFee = isCouponValid ? vatFee * 0.8 : vatFee;
     const deliveryFee = parseFloat(fee.delivery_fee);
@@ -418,7 +407,7 @@ export default function Checkout() {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>VAT ({isCouponValid ? '20% off' : ''}):</Text>
               <Text style={styles.summaryValue}>
-                ₦{(isCouponValid ? (parseFloat(fee.vat_fee) * cartItems.length * 0.8) : (parseFloat(fee.vat_fee) * cartItems.length)).toFixed(2)}
+                ₦{(isCouponValid ? (parseFloat(fee.vat_fee) * 0.8) : parseFloat(fee.vat_fee)).toFixed(2)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
