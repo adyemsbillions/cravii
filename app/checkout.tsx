@@ -4,7 +4,6 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   Dimensions,
   Image,
@@ -36,21 +35,73 @@ interface Fee {
 const { width } = Dimensions.get('window');
 const PLACEHOLDER_AVATAR = require('../assets/images/avatar.jpg');
 
-const fetchWithRetry = async (url: string, options: RequestInit, retries: number = 4, delay: number = 3000): Promise<Response> => {
+const fetchWithRetry = async (
+  url: string,
+  options: RequestInit = {},
+  retries: number = 4,
+  initialDelay: number = 300
+): Promise<Response> => {
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+  ];
+
   for (let i = 0; i < retries; i++) {
+    const currentUserAgent = userAgents[i % userAgents.length];
+    const defaultHeaders = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': currentUserAgent,
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      ...options.headers,
+    };
+
+    const sessionCookie = await AsyncStorage.getItem('sessionCookie');
+    if (sessionCookie && i >= 2) {
+      defaultHeaders['Cookie'] = sessionCookie;
+    }
+
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, {
+        ...options,
+        headers: defaultHeaders,
+        credentials: 'include',
+      });
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}: [Error: HTTP ${response.status}] - ${errorText}`);
+        const responseHeaders = Object.fromEntries(response.headers.entries());
+        console.log(
+          `Fetch attempt ${i + 1} of ${retries} failed for ${url}: [Error: HTTP ${response.status}] - ${errorText}`,
+          {
+            headers: responseHeaders,
+            payload: options.body ? JSON.parse(options.body as string) : null,
+          }
+        );
+        if (response.status === 403 && i < retries - 1) {
+          const delay = initialDelay * Math.pow(2, i);
+          console.log(`Waiting ${delay}ms before retrying with User-Agent: ${currentUserAgent}...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
         throw new Error(`HTTP ${response.status} - ${errorText}`);
       }
       console.log(`Fetch succeeded for ${url} on attempt ${i + 1}`);
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) {
+        await AsyncStorage.setItem('sessionCookie', setCookie);
+      }
       return response;
     } catch (error) {
-      console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
-      if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
-      else throw error; // Rethrow on last attempt
+      console.log(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
+      if (i < retries - 1) {
+        const delay = initialDelay * Math.pow(2, i);
+        console.log(`Waiting ${delay}ms before retrying...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
     }
   }
   throw new Error(`Fetch failed after ${retries} attempts`);
@@ -60,8 +111,7 @@ export default function Checkout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const webviewRef = useRef<WebView>(null);
-  const [name, setName] = useState<string>('');
-  const [location, setLocation] = useState<string>('');
+  const [name, setName] = useState<string>('User');
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [deliveryAddress, setDeliveryAddress] = useState<string>('');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
@@ -70,27 +120,27 @@ export default function Checkout() {
   const [total, setTotal] = useState<string>('0.00');
   const [showWebView, setShowWebView] = useState<boolean>(false);
   const [paymentUrl, setPaymentUrl] = useState<string>('');
-  const [showReloginModal, setShowReloginModal] = useState<boolean>(false);
+  const [showLoginPromptModal, setShowLoginPromptModal] = useState<boolean>(false);
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
+  const [showClosedHoursModal, setShowClosedHoursModal] = useState<boolean>(false);
   const [orderId, setOrderId] = useState<number | null>(null);
   const [couponCode, setCouponCode] = useState<string>('');
   const [isCouponValid, setIsCouponValid] = useState<boolean>(false);
-  const [fee, setFee] = useState<Fee | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [restaurantFetchError, setRestaurantFetchError] = useState<boolean>(false);
+  const [fee, setFee] = useState<Fee>({ delivery_fee: '500', vat_fee: '200' });
   const [isPaying, setIsPaying] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string>('');
+  const [showCouponSuccessModal, setShowCouponSuccessModal] = useState<boolean>(false);
+  const [showCouponErrorModal, setShowCouponErrorModal] = useState<boolean>(false);
+  const [couponErrorMessage, setCouponErrorMessage] = useState<string>('');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const fetchData = async () => {
-      setIsLoading(true);
-      setRestaurantFetchError(false); // Reset error state
       try {
         const id = await AsyncStorage.getItem('id');
         console.log('Fetched user ID:', id);
         if (!id) {
-          setShowReloginModal(true);
-          setIsLoading(false);
+          setShowLoginPromptModal(true);
           return;
         }
 
@@ -101,102 +151,71 @@ export default function Checkout() {
           setCartItems(items);
         }
 
-        const fetchPromises = [
-          fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
+        // Fetch user data
+        try {
+          const userResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-          }),
-          fetchWithRetry('https://cravii.ng/cravii/api/fetch_fee.php', {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-          }),
-        ];
-
-        // Fetch restaurant address if there are cart items
-        if (items.length > 0 && items[0]?.restaurantId) {
-          fetchPromises.push(
-            fetchWithRetry(`https://cravii.ng/cravii/api/fetch_restaurant_address.php?restaurant_id=${items[0].restaurantId}`, {
-              method: 'GET',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-            })
-          );
+          });
+          const userResult = await userResponse.json();
+          console.log('User API response:', userResult);
+          if (userResult.success) {
+            const user = userResult.data;
+            setName(user.name || '');
+            setDeliveryAddress(user.location || '');
+          } else {
+            console.error('User fetch failed:', userResult?.message || 'Unknown error');
+          }
+        } catch (userError) {
+          console.error('User fetch failed:', userError);
         }
 
-        const [userResponse, feeResponse, restaurantResponse] = await Promise.all(fetchPromises);
-
-        const [userResult, feeResult, restaurantResult] = await Promise.all([
-          userResponse.json(),
-          feeResponse.json(),
-          restaurantResponse ? restaurantResponse.json() : Promise.resolve(null),
-        ]);
-
-        console.log('User API response:', userResult);
-        console.log('Fee API response:', feeResult);
-        console.log('Restaurant API response:', restaurantResult);
-
-        if (userResult.success) {
-          const user = userResult.data;
-          setName(user.name || '');
-          setLocation(user.location || '');
-          setDeliveryAddress(user.location || '');
-        } else {
-          setShowReloginModal(true);
-          setIsLoading(false);
-          return;
+        // Fetch fees
+        try {
+          const feeResponse = await fetchWithRetry('https://cravii.ng/cravii/api/fetch_fee.php', {
+            method: 'GET',
+            credentials: 'include',
+          });
+          const feeResult = await feeResponse.json();
+          console.log('Fee API response:', feeResult);
+          if (feeResult.success) {
+            setFee(feeResult.data);
+          } else {
+            console.error('Fee fetch failed:', feeResult?.message || 'Unknown error');
+          }
+        } catch (feeError) {
+          console.error('Fee fetch failed:', feeError);
         }
 
         if (items.length > 0) {
-          if (feeResult.success) {
-            let fetchedFees = feeResult.data;
-            if (restaurantResult?.success) {
-              // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
-              if (
-                restaurantResult.address.toLowerCase().includes('unimaid') &&
-                (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
-              ) {
-                console.log('Fee override applied for restaurant address:', restaurantResult.address, 'and userLocation:', userLocation);
-                fetchedFees = { delivery_fee: '200', vat_fee: '150' };
-              }
-              setRestaurantAddress(restaurantResult.address);
-            } else {
-              console.error('Failed to fetch restaurant address:', restaurantResult?.message || 'Unknown error');
-              setRestaurantFetchError(true);
-              Alert.alert(
-                'Warning',
-                'Unable to fetch restaurant details. Default fees are applied, which may not reflect Unimaid discounts.',
-                [{ text: 'OK' }]
+          if (items[0]?.restaurantId) {
+            try {
+              const restaurantResponse = await fetchWithRetry(
+                `https://cravii.ng/cravii/api/fetch_restaurant_address.php?restaurant_id=${items[0].restaurantId}`,
+                {
+                  method: 'GET',
+                  credentials: 'include',
+                }
               );
-              setRestaurantAddress('');
+              const restaurantResult = await restaurantResponse.json();
+              console.log('Restaurant API response:', restaurantResult);
+              if (restaurantResult?.success) {
+                setRestaurantAddress(restaurantResult.address);
+              } else {
+                console.error('Failed to fetch restaurant address:', restaurantResult?.message || 'Unknown error');
+              }
+            } catch (restaurantError) {
+              console.error('Restaurant address fetch failed:', restaurantError);
             }
-            setFee(fetchedFees);
-          } else {
-            Alert.alert('Error', 'Failed to fetch fees. Please try again later.', [{ text: 'OK' }]);
-            setIsLoading(false);
-            return;
           }
           calculateTotal(items);
         }
       } catch (error) {
         console.error('Fetch data error:', error);
-        if (String(error).includes('HTTP 403')) {
-          setRestaurantFetchError(true);
-          Alert.alert(
-            'Warning',
-            'Unable to fetch restaurant details due to server restrictions. Default fees are applied, which may not reflect Unimaid discounts.',
-            [{ text: 'OK' }]
-          );
-        } else {
-          Alert.alert('Error', 'Failed to load data. Please check your network or try again later.', [{ text: 'OK' }]);
-        }
-      } finally {
-        setIsLoading(false);
       }
     };
     fetchData();
-  }, [userLocation]);
+  }, []);
 
   useEffect(() => {
     if (cartItems.length > 0 && fee) {
@@ -204,22 +223,29 @@ export default function Checkout() {
     }
   }, [cartItems, fee, isCouponValid, userLocation]);
 
+  // Reset fadeAnim when modals close
   useEffect(() => {
-    if (showSuccessModal) {
+    if (!showSuccessModal && !showLoginPromptModal && !showClosedHoursModal && !showCouponSuccessModal && !showCouponErrorModal) {
+      fadeAnim.setValue(0);
+    }
+  }, [showSuccessModal, showLoginPromptModal, showClosedHoursModal, showCouponSuccessModal, showCouponErrorModal]);
+
+  // Start animation for modals
+  useEffect(() => {
+    if (showSuccessModal || showLoginPromptModal || showClosedHoursModal || showCouponSuccessModal || showCouponErrorModal) {
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 300,
         useNativeDriver: true,
       }).start();
     }
-  }, [showSuccessModal]);
+  }, [showSuccessModal, showLoginPromptModal, showClosedHoursModal, showCouponSuccessModal, showCouponErrorModal]);
 
   const calculateTotal = (items: CartItem[]) => {
     if (!fee) return;
     const subtotal = items.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
     let deliveryFee = parseFloat(fee.delivery_fee);
-    let vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
-    // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
+    let vatFee = parseFloat(fee.vat_fee);
     if (
       restaurantAddress.toLowerCase().includes('unimaid') &&
       (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
@@ -238,80 +264,82 @@ export default function Checkout() {
     try {
       const userId = await AsyncStorage.getItem('id');
       if (!userId || !couponCode) {
-        Alert.alert('Error', 'Enter a coupon code and log in.', [{ text: 'OK' }]);
+        console.log('Coupon validation skipped: No user ID or coupon code');
+        setIsCouponValid(false);
+        calculateTotal(cartItems);
         return;
       }
 
       console.log('Validating coupon:', { userId, couponCode });
       const response = await fetchWithRetry(`https://cravii.ng/cravii/api/validate_coupon.php`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ user_id: userId, coupon_code: couponCode }),
       });
 
-      console.log('Response status:', response.status);
       const text = await response.text();
       console.log('Raw response:', text);
       let result;
       try {
         result = JSON.parse(text);
       } catch (parseError) {
-        console.log('JSON parse error:', parseError);
-        throw new Error('Invalid response format');
+        console.error('JSON parse error:', parseError);
+        setIsCouponValid(false);
+        calculateTotal(cartItems);
+        return;
       }
       console.log('Coupon validation response:', result);
 
       if (result.success) {
         setIsCouponValid(true);
         calculateTotal(cartItems);
-        Alert.alert('Success', 'Coupon applied! 20% off VAT.', [{ text: 'OK' }]);
+        setShowCouponSuccessModal(true);
       } else {
+        if (result.message && result.message.toLowerCase().includes('already redeemed')) {
+          setCouponErrorMessage('You have already redeemed this coupon.');
+          setShowCouponErrorModal(true);
+        } else if (userId) { // Assume existing userId indicates not a new user
+          setCouponErrorMessage('Not eligible for new user coupon.');
+          setShowCouponErrorModal(true);
+        }
         setIsCouponValid(false);
         calculateTotal(cartItems);
-        Alert.alert('Error', result.message || 'Invalid coupon', [{ text: 'OK' }]);
       }
     } catch (error) {
-      console.log('Coupon validation error:', error);
-      Alert.alert('Error', 'Coupon validation failed.', [{ text: 'OK' }]);
+      console.error('Coupon validation error:', error);
+      setIsCouponValid(false);
+      calculateTotal(cartItems);
     }
   };
 
   const handlePayment = async () => {
     if (!deliveryAddress || !phoneNumber || !userLocation) {
-      Alert.alert('Missing Info', 'Fill all delivery fields.', [{ text: 'OK' }]);
+      console.log('Payment blocked: Missing delivery fields');
+      setErrorMessage('Please fill all delivery fields.');
       return;
     }
 
     if (!fee) {
-      Alert.alert('Error', 'Fee data not available. Please try again later.', [{ text: 'OK' }]);
+      console.log('Payment blocked: Fee data not available');
+      setErrorMessage('Unable to process payment. Please try again later.');
       return;
     }
 
-    const restaurantIds = new Set(cartItems.map(item => item.restaurantId));
+    const restaurantIds = new Set(cartItems.map((item) => item.restaurantId));
     if (restaurantIds.size > 1) {
-      console.log('Restaurant IDs:', [...restaurantIds]);
-      Alert.alert('Restaurant Mismatch', 'Items must be from one restaurant.', [
-        { text: 'Go to Cart', onPress: () => router.push('/cart') },
-        { text: 'OK' },
-      ]);
+      console.log('Payment blocked: Items from multiple restaurants:', [...restaurantIds]);
+      setErrorMessage('Items from multiple restaurants cannot be checked out together.');
       return;
     }
 
-    if (restaurantFetchError) {
-      Alert.alert(
-        'Warning',
-        'Restaurant details unavailable. Proceeding with default fees, which may not reflect Unimaid discounts. Continue?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Proceed',
-            onPress: async () => {
-              await proceedWithPayment();
-            },
-          },
-        ]
-      );
+    // Check if current time is between 9 PM and 6 AM WAT (UTC+1)
+    const now = new Date();
+    const watOffset = 1 * 60; // WAT is UTC+1 (1 hour = 60 minutes)
+    const watTime = new Date(now.getTime() + watOffset * 60 * 1000);
+    const hours = watTime.getUTCHours();
+    console.log('WAT Time:', watTime.toISOString(), 'Hours:', hours);
+    if (hours >= 21 || hours < 6) {
+      setShowClosedHoursModal(true);
     } else {
       await proceedWithPayment();
     }
@@ -319,12 +347,12 @@ export default function Checkout() {
 
   const proceedWithPayment = async () => {
     setIsPaying(true);
+    setErrorMessage(''); // Clear any previous error message
     try {
       calculateTotal(cartItems);
       const subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
       let deliveryFee = parseFloat(fee!.delivery_fee);
-      let vatFee = parseFloat(fee!.vat_fee); // Apply VAT fee once per purchase
-      // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
+      let vatFee = parseFloat(fee!.vat_fee);
       if (
         restaurantAddress.toLowerCase().includes('unimaid') &&
         (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
@@ -352,7 +380,6 @@ export default function Checkout() {
 
       const response = await fetchWithRetry('https://cravii.ng/cravii/api/process_checkout.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(payload),
       });
@@ -362,7 +389,9 @@ export default function Checkout() {
       try {
         result = JSON.parse(rawResponse);
       } catch (e) {
-        throw new Error('Invalid JSON');
+        console.error('Invalid JSON response:', e);
+        setErrorMessage('Invalid server response. Please try again.');
+        return;
       }
 
       if (result.status === 'success' && result.authorization_url) {
@@ -370,16 +399,16 @@ export default function Checkout() {
         setOrderId(result.order_id || null);
         setShowWebView(true);
       } else if (result.error && result.error.toLowerCase().includes('not logged in')) {
-        setShowReloginModal(true);
+        setShowLoginPromptModal(true);
       } else {
-        Alert.alert('Payment Error', result.error || 'Try again.', [{ text: 'OK' }]);
+        setErrorMessage('Payment processing failed. Please try again.');
       }
     } catch (error) {
-      console.error('Payment error:', error);
-      if (error.message.includes('HTTP 401') || (typeof error.message === 'string' && error.message.toLowerCase().includes('not logged in'))) {
-        setShowReloginModal(true);
+      const errorMsg = error.message || 'An unexpected error occurred.';
+      if (errorMsg.includes('HTTP 401') || errorMsg.toLowerCase().includes('not logged in')) {
+        setShowLoginPromptModal(true);
       } else {
-        Alert.alert('Payment Error', error.message || 'Try again.', [{ text: 'OK' }]);
+        setErrorMessage('Failed to process payment. Please check your connection and try again.');
       }
     } finally {
       setIsPaying(false);
@@ -397,7 +426,6 @@ export default function Checkout() {
         if (orderId) {
           fetchWithRetry('https://cravii.ng/cravii/api/success_email.php', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ order_id: orderId }),
           }).catch(() => {});
@@ -406,15 +434,15 @@ export default function Checkout() {
     } else if (navState.url.includes('cancel')) {
       setShowWebView(false);
       setPaymentUrl('');
-      Alert.alert('Cancelled', 'Payment cancelled.', [{ text: 'OK' }]);
     }
   };
 
   const onWebViewError = (syntheticEvent: any) => {
     const { nativeEvent } = syntheticEvent;
-    Alert.alert('Error', 'Failed to load payment.', [{ text: 'OK' }]);
+    console.error('WebView error:', nativeEvent);
     setShowWebView(false);
     setPaymentUrl('');
+    setErrorMessage('Payment gateway error. Please try again.');
   };
 
   const subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
@@ -431,11 +459,7 @@ export default function Checkout() {
           <View style={styles.userInfo}>
             <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
             <View>
-              <Text style={styles.greeting}>Hello {name || 'User'}</Text>
-              <View style={styles.location}>
-                <Feather name="map-pin" size={16} color="#4ade80" />
-                <Text style={styles.locationText}>{location || 'N.Y Bronx'}</Text>
-              </View>
+              <Text style={styles.greeting}>Hello {name}</Text>
             </View>
           </View>
           <TouchableOpacity style={styles.notificationButton} onPress={() => router.push('/cart')}>
@@ -478,25 +502,19 @@ export default function Checkout() {
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Order Summary</Text>
         </View>
-        {isLoading ? (
-          <Text style={styles.emptyCartText}>Loading...</Text>
-        ) : cartItems.length === 0 ? (
-          <Text style={styles.emptyCartText}>No items in cart.</Text>
-        ) : (
-          cartItems.map((item) => (
-            <View key={item.id} style={styles.summaryItem}>
-              <View>
-                <Text style={styles.summaryName}>
-                  {item.name} (x{item.quantity})
-                </Text>
-              </View>
-              <Text style={styles.summaryPrice}>
-                ₦{(parseFloat(item.price.replace('₦', '') || '0') * item.quantity).toFixed(2)}
+        {cartItems.map((item) => (
+          <View key={item.id} style={styles.summaryItem}>
+            <View>
+              <Text style={styles.summaryName}>
+                {item.name} (x{item.quantity})
               </Text>
             </View>
-          ))
-        )}
-        {cartItems.length > 0 && fee && !isLoading && (
+            <Text style={styles.summaryPrice}>
+              ₦{(parseFloat(item.price.replace('₦', '') || '0') * item.quantity).toFixed(2)}
+            </Text>
+          </View>
+        ))}
+        {cartItems.length > 0 && fee && (
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal:</Text>
@@ -528,11 +546,6 @@ export default function Checkout() {
               <Text style={styles.summaryLabelTotal}>Total:</Text>
               <Text style={styles.summaryValueTotal}>{`₦${total}`}</Text>
             </View>
-            {restaurantFetchError && (
-              <Text style={styles.warningText}>
-                Note: Using default fees due to unavailable restaurant details. Unimaid discounts may not apply.
-              </Text>
-            )}
           </View>
         )}
         <View style={[styles.deliveryCard, { marginTop: 15 }]}>
@@ -542,18 +555,23 @@ export default function Checkout() {
             style={styles.deliveryLogo}
           />
         </View>
-        {cartItems.length > 0 && !isLoading && (
-          <TouchableOpacity
-            style={[styles.payButton, isPaying && styles.payButtonDisabled]}
-            onPress={handlePayment}
-            disabled={isPaying}
-          >
-            {isPaying ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.payText}>Pay Now</Text>
-            )}
-          </TouchableOpacity>
+        {cartItems.length > 0 && (
+          <View>
+            <TouchableOpacity
+              style={[styles.payButton, isPaying && styles.payButtonDisabled]}
+              onPress={handlePayment}
+              disabled={isPaying}
+            >
+              {isPaying ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.payText}>Pay Now</Text>
+              )}
+            </TouchableOpacity>
+            {errorMessage ? (
+              <Text style={styles.errorText}>{errorMessage}</Text>
+            ) : null}
+          </View>
         )}
       </ScrollView>
       {showWebView && (
@@ -612,29 +630,112 @@ export default function Checkout() {
       <Modal
         animationType="fade"
         transparent={true}
-        visible={showReloginModal}
+        visible={showLoginPromptModal}
         onRequestClose={() => {
-          setShowReloginModal(false);
+          setShowLoginPromptModal(false);
           AsyncStorage.removeItem('id').then(() => router.replace('/login'));
         }}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Feather name="lock" size={40} color="#ff5722" style={styles.modalIcon} />
-            <Text style={styles.modalTitle}>Login Required</Text>
-            <Text style={styles.modalMessage}>
-              Oops! You need to login again to make payment, and dont worry your cart wont be cleared
+          <Animated.View style={[styles.successModalContainer, { opacity: fadeAnim }]}>
+            <Feather name="lock" size={50} color="#ff5722" style={styles.successModalIcon} />
+            <Text style={styles.successModalTitle}>Please Login to Checkout</Text>
+            <Text style={styles.successModalMessage}>
+              Please login to checkout. Note: Your cart items are still there.
             </Text>
             <TouchableOpacity
-              style={styles.modalButton}
+              style={styles.successModalButton}
               onPress={() => {
-                setShowReloginModal(false);
+                setShowLoginPromptModal(false);
                 AsyncStorage.removeItem('id').then(() => router.replace('/login'));
               }}
             >
-              <Text style={styles.modalButtonText}>OK</Text>
+              <Text style={styles.successModalButtonText}>OK</Text>
             </TouchableOpacity>
-          </View>
+          </Animated.View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showClosedHoursModal}
+        onRequestClose={() => setShowClosedHoursModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View style={[styles.successModalContainer, { opacity: fadeAnim }]}>
+            <Feather name="clock" size={50} color="#ff5722" style={styles.successModalIcon} />
+            <Text style={styles.successModalTitle}>We Are Closed</Text>
+            <Text style={styles.successModalMessage}>
+              We are closed for the day. All orders placed now will be delivered from 6 AM.
+            </Text>
+            <View style={styles.modalButtonContainer}>
+              <TouchableOpacity
+                style={[styles.successModalButton, styles.cancelButton]}
+                onPress={() => setShowClosedHoursModal(false)}
+              >
+                <Text style={styles.successModalButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.successModalButton}
+                onPress={() => {
+                  setShowClosedHoursModal(false);
+                  proceedWithPayment();
+                }}
+              >
+                <Text style={styles.successModalButtonText}>Proceed</Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="none"
+        transparent={true}
+        visible={showCouponSuccessModal}
+        onRequestClose={() => setShowCouponSuccessModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View style={[styles.successModalContainer, { opacity: fadeAnim }]}>
+            <Feather name="check-circle" size={50} color="#4ade80" style={styles.successModalIcon} />
+            <Text style={styles.successModalTitle}>Coupon Applied Successfully!</Text>
+            <Text style={styles.successModalMessage}>
+              Your coupon has been applied. Enjoy the discount on your order!
+            </Text>
+            <TouchableOpacity
+              style={styles.successModalButton}
+              onPress={() => {
+                setShowCouponSuccessModal(false);
+                calculateTotal(cartItems); // Recalculate total to ensure it reflects the coupon
+              }}
+            >
+              <Text style={styles.successModalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      </Modal>
+      <Modal
+        animationType="none"
+        transparent={true}
+        visible={showCouponErrorModal}
+        onRequestClose={() => setShowCouponErrorModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <Animated.View style={[styles.errorModalContainer, { opacity: fadeAnim }]}>
+            <Feather name="x-circle" size={50} color="#e63946" style={styles.successModalIcon} />
+            <Text style={styles.successModalTitle}>Coupon Error</Text>
+            <Text style={styles.successModalMessage}>
+              {couponErrorMessage}
+            </Text>
+            <TouchableOpacity
+              style={styles.successModalButton}
+              onPress={() => {
+                setShowCouponErrorModal(false);
+                setCouponErrorMessage('');
+              }}
+            >
+              <Text style={styles.successModalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </Animated.View>
         </View>
       </Modal>
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
@@ -667,7 +768,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 10,
     paddingBottom: 15,
     backgroundColor: '#fff',
     borderBottomLeftRadius: 20,
@@ -688,8 +789,6 @@ const styles = StyleSheet.create({
     borderColor: '#ff5722',
   },
   greeting: { fontSize: 16, color: '#666', fontWeight: '500' },
-  location: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-  locationText: { fontSize: 14, color: '#333', fontWeight: '600', marginLeft: 5 },
   notificationButton: {
     width: 40,
     height: 40,
@@ -767,12 +866,6 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: 16, color: '#333', fontWeight: '500' },
   summaryLabelTotal: { fontSize: 18, color: '#333', fontWeight: '700' },
   summaryValueTotal: { fontSize: 18, color: '#e63946', fontWeight: '700' },
-  warningText: {
-    fontSize: 14,
-    color: '#ff5722',
-    textAlign: 'center',
-    marginTop: 10,
-  },
   deliveryCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -812,10 +905,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff8c66',
     opacity: 0.7,
   },
-  payText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
+  payText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
   webviewContainer: {
     position: 'absolute',
@@ -834,7 +927,6 @@ const styles = StyleSheet.create({
     margin: 20,
   },
   closeWebViewText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  emptyCartText: { fontSize: 16, color: '#333', textAlign: 'center', marginTop: 20 },
   bottomNav: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -862,46 +954,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  modalContainer: {
-    width: width * 0.8,
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  modalIcon: {
-    marginBottom: 15,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 10,
-  },
-  modalMessage: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  modalButton: {
-    backgroundColor: '#ff5722',
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    width: '100%',
-  },
-  modalButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
   successModalContainer: {
     width: width * 0.85,
     backgroundColor: '#fff',
@@ -915,6 +967,20 @@ const styles = StyleSheet.create({
     elevation: 8,
     borderWidth: 2,
     borderColor: '#4ade80',
+  },
+  errorModalContainer: {
+    width: width * 0.85,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 25,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#e63946',
   },
   successModalIcon: {
     marginBottom: 20,
@@ -937,18 +1003,34 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff5722',
     borderRadius: 15,
     paddingVertical: 12,
-    paddingHorizontal: 30,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    width: '80%',
+    width: '45%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
+  cancelButton: {
+    backgroundColor: '#999',
+    marginRight: 10,
+  },
+  modalButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-evenly',
+    width: '90%',
+    flexWrap: 'wrap',
+  },
   successModalButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  errorText: {
+    color: '#e63946',
+    textAlign: 'center',
+    marginTop: 5,
+    fontSize: 14,
   },
 });

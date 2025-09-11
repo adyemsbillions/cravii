@@ -26,12 +26,83 @@ const { width } = Dimensions.get('window');
 const PLACEHOLDER_AVATAR = require('../assets/images/avatar.jpg');
 const PLACEHOLDER_RECIPE_CHICKEN = require('../assets/images/recipe_chicken.jpg');
 
+const fetchWithRetry = async (
+  url: string,
+  options: RequestInit = {},
+  retries: number = 4,
+  initialDelay: number = 300
+): Promise<Response> => {
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+  ];
+
+  for (let i = 0; i < retries; i++) {
+    const currentUserAgent = userAgents[i % userAgents.length];
+    const defaultHeaders = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': currentUserAgent,
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Connection': 'keep-alive',
+      ...options.headers,
+    };
+
+    const sessionCookie = await AsyncStorage.getItem('sessionCookie');
+    if (sessionCookie && i >= 2) {
+      defaultHeaders['Cookie'] = sessionCookie;
+    }
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: defaultHeaders,
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        const responseHeaders = Object.fromEntries(response.headers.entries());
+        console.error(
+          `Fetch attempt ${i + 1} of ${retries} failed for ${url}: [Error: HTTP ${response.status}] - ${errorText}`,
+          {
+            headers: responseHeaders,
+            payload: options.body ? JSON.parse(options.body as string) : null,
+          }
+        );
+        if (response.status === 403 && i < retries - 1) {
+          const delay = initialDelay * Math.pow(2, i);
+          console.log(`Waiting ${delay}ms before retrying with User-Agent: ${currentUserAgent}...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        throw new Error(`HTTP ${response.status} - ${errorText}`);
+      }
+      console.log(`Fetch succeeded for ${url} on attempt ${i + 1}`);
+      const setCookie = response.headers.get('set-cookie');
+      if (setCookie) {
+        await AsyncStorage.setItem('sessionCookie', setCookie);
+      }
+      return response;
+    } catch (error) {
+      console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
+      if (i < retries - 1) {
+        const delay = initialDelay * Math.pow(2, i);
+        console.log(`Waiting ${delay}ms before retrying...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+  throw new Error(`Fetch failed after ${retries} attempts`);
+};
+
 export default function Cart() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
   const [name, setName] = useState<string>('');
-  const [location, setLocation] = useState<string>('');
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
   useEffect(() => {
@@ -39,20 +110,18 @@ export default function Cart() {
       try {
         const id = await AsyncStorage.getItem('id');
         if (id) {
-          const userResponse = await fetch(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
+          const userResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
             method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
           });
           const userResult = await userResponse.json();
           if (userResult.success) {
-            const user = userResult.data;
-            setName(user.name || '');
-            setLocation(user.location || '');
+            setName(userResult.data.name || '');
           } else {
             console.error('Failed to fetch user data:', userResult.message);
           }
         } else {
-          console.warn('No user ID found. Defaulting to empty name and location.');
+          console.warn('No user ID found. Defaulting to empty name.');
         }
 
         const cart = await AsyncStorage.getItem('cart');
@@ -110,10 +179,6 @@ export default function Cart() {
             <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
             <View>
               <Text style={styles.greeting}>Hello {name || 'User'}</Text>
-              <View style={styles.location}>
-                <Feather name="map-pin" size={16} color="#4ade80" />
-                <Text style={styles.locationText}>{location || 'N.Y Bronx'}</Text>
-              </View>
             </View>
           </View>
           <TouchableOpacity style={styles.notificationButton}>
@@ -141,7 +206,6 @@ export default function Cart() {
               <View style={styles.cartInfo}>
                 <Text style={styles.cartName}>{item.name}</Text>
                 <Text style={styles.cartPrice}>{`₦${item.price}`}</Text>
-             
                 <View style={styles.quantityContainer}>
                   <TouchableOpacity
                     style={styles.quantityButton}
@@ -240,17 +304,6 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: '500',
   },
-  location: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  locationText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-    marginLeft: 5,
-  },
   notificationButton: {
     width: 40,
     height: 40,
@@ -304,11 +357,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#4ade80',
     marginTop: 5,
-  },
-  feeText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
   },
   quantityContainer: {
     flexDirection: 'row',
