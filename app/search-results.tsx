@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -31,37 +32,56 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-// Reusable RecipeCard component (adjusted for full image)
-const RecipeCard = ({ recipe, onPress }: { recipe: Recipe; onPress: () => void }) => (
-  <TouchableOpacity
-    style={styles.recipeCard}
-    onPress={onPress}
-    accessibilityRole="button"
-    accessibilityLabel={`View ${recipe.name} details`}
-  >
-    <Image
-      source={
-        recipe.image_url
-          ? { uri: `https://cravii.ng/cravii/api/${recipe.image_url}` }
-          : require('../assets/images/promo_burger.png')
-      }
-      style={styles.recipeImage}
-      onError={(e) => console.log(`Image load error for ${recipe.image_url}:`, e.nativeEvent.error)}
-    />
-    <TouchableOpacity style={styles.heartIcon}>
-      <Feather name="heart" size={18} color="#ff5722" />
-    </TouchableOpacity>
-    <View style={styles.recipeInfo}>
-      <Text style={styles.recipeName}>{recipe.name}</Text>
-      <Text style={styles.recipeDescription}>{recipe.description}</Text>
-      <View style={styles.recipeFooter}>
-        <Text style={styles.recipePrice}>{`₦${recipe.price || '0.00'}`}</Text>
-        <TouchableOpacity style={styles.addIcon}>
-          <Feather name="plus" size={16} color="#fff" />
-        </TouchableOpacity>
+// Reusable RecipeCard component (adjusted for smaller size and like functionality)
+const RecipeCard = memo(
+  ({
+    recipe,
+    onPress,
+    onLikeToggle,
+    isLiked,
+  }: {
+    recipe: Recipe;
+    onPress: () => void;
+    onLikeToggle: () => void;
+    isLiked: boolean;
+  }) => (
+    <TouchableOpacity
+      style={styles.recipeCard}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={`View ${recipe.name} details`}
+    >
+      <Image
+        source={
+          recipe.image_url
+            ? { uri: `https://cravii.ng/cravii/api/${recipe.image_url}` }
+            : require('../assets/images/promo_burger.png')
+        }
+        style={styles.recipeImage}
+        onError={(e) => console.log(`Image load error for ${recipe.image_url}:`, e.nativeEvent.error)}
+      />
+      <View style={styles.recipeInfo}>
+        <Text style={styles.recipeName}>{recipe.name}</Text>
+        <Text
+          style={styles.recipeDescription}
+          numberOfLines={2}
+          ellipsizeMode="tail"
+        >
+          {recipe.description}
+        </Text>
+        <View style={styles.recipeFooter}>
+          <Text style={styles.recipePrice}>{`₦${recipe.price || '0.00'}`}</Text>
+          <TouchableOpacity style={styles.heartIcon} onPress={onLikeToggle}>
+            <Feather
+              name="heart"
+              size={16}
+              color={isLiked ? '#ff5722' : '#999'}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
-    </View>
-  </TouchableOpacity>
+    </TouchableOpacity>
+  )
 );
 
 const { width } = Dimensions.get('window');
@@ -72,7 +92,48 @@ export default function SearchResults() {
   const router = useRouter();
   const [searchRecipes, setSearchRecipes] = useState<Recipe[]>([]);
   const [exploreRecipes, setExploreRecipes] = useState<Recipe[]>([]);
+  const [likedRecipes, setLikedRecipes] = useState<string[]>([]);
 
+  // Fetch liked recipes on mount
+  useEffect(() => {
+    const fetchLikes = async () => {
+      try {
+        const likes = await AsyncStorage.getItem('likes');
+        const likedItems: Recipe[] = likes ? JSON.parse(likes) : [];
+        setLikedRecipes(likedItems.map((item) => item.id));
+      } catch (error) {
+        console.error('Error fetching liked recipes:', error);
+      }
+    };
+    fetchLikes();
+  }, []);
+
+  // Toggle like function
+  const toggleLike = async (recipe: Recipe) => {
+    try {
+      const likes = await AsyncStorage.getItem('likes');
+      let likedItems: Recipe[] = likes ? JSON.parse(likes) : [];
+      const isCurrentlyLiked = likedItems.some((item) => item.id === recipe.id);
+
+      if (isCurrentlyLiked) {
+        // Unlike: Remove from likes
+        likedItems = likedItems.filter((item) => item.id !== recipe.id);
+        setLikedRecipes(likedRecipes.filter((id) => id !== recipe.id));
+        console.log('Removed from likes:', recipe.name);
+      } else {
+        // Like: Add to likes
+        likedItems.push(recipe);
+        setLikedRecipes([...likedRecipes, recipe.id]);
+        console.log('Added to likes:', recipe.name);
+      }
+
+      await AsyncStorage.setItem('likes', JSON.stringify(likedItems));
+    } catch (error) {
+      console.error('Error toggling like:', error);
+    }
+  };
+
+  // Fetch recipes
   useEffect(() => {
     const fetchRecipes = async () => {
       try {
@@ -137,6 +198,8 @@ export default function SearchResults() {
                     },
                   })
                 }
+                onLikeToggle={() => toggleLike(recipe)}
+                isLiked={likedRecipes.includes(recipe.id)}
               />
             ))}
           </View>
@@ -163,6 +226,8 @@ export default function SearchResults() {
                       },
                     })
                   }
+                  onLikeToggle={() => toggleLike(recipe)}
+                  isLiked={likedRecipes.includes(recipe.id)}
                 />
               ))}
             </View>
@@ -203,70 +268,61 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   recipeList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 10,
     paddingBottom: 30,
-    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   recipeCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    width: width * 0.85,
-    marginBottom: 20,
+    borderRadius: 15,
+    width: (width - 50) / 3, // Match likes.tsx size
+    marginHorizontal: 5,
+    marginBottom: 15,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowRadius: 4,
+    elevation: 3,
     overflow: 'hidden',
   },
   recipeImage: {
     width: '100%',
-    height: 200, // Increased height to fill the card
+    height: 80, // Match likes.tsx
     resizeMode: 'cover',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  heartIcon: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
   },
   recipeInfo: {
-    padding: 15,
+    padding: 8, // Match likes.tsx
   },
   recipeName: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 14, // Match likes.tsx
+    fontWeight: '600',
     color: '#333',
-    marginBottom: 5,
+    marginBottom: 3,
   },
   recipeDescription: {
-    fontSize: 13,
+    fontSize: 10, // Match likes.tsx
     color: '#666',
-    marginBottom: 10,
+    marginBottom: 5,
   },
   recipeFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 5,
   },
   recipePrice: {
-    fontSize: 18,
-    fontWeight: '900',
+    fontSize: 14, // Match likes.tsx
+    fontWeight: '800',
     color: '#e63946',
   },
-  addIcon: {
-    backgroundColor: '#ff5722',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
+  heartIcon: {
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 12, // Match likes.tsx
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },

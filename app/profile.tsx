@@ -1,4 +1,4 @@
-    import { Feather } from '@expo/vector-icons';
+import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -18,252 +18,256 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-    const { width } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
-    // Placeholder images
-    const PLACEHOLDER_AVATAR = require('../assets/images/avatar.jpg');
+// Placeholder images
+const PLACEHOLDER_AVATAR = require('../assets/images/avatar.jpg');
 
-    export default function Profile() {
-      const insets = useSafeAreaInsets();
-      const router = useRouter();
+export default function Profile() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
 
-      // State for form data
-      const [name, setName] = useState('');
-      const [email, setEmail] = useState('');
-      const [location, setLocation] = useState('');
-      const [gender, setGender] = useState('');
-      const [referralCode, setReferralCode] = useState('');
-      const [modalVisible, setModalVisible] = useState(false);
-      const [modalMessage, setModalMessage] = useState('');
-      const [modalType, setModalType] = useState('success'); // 'success' or 'error'
+  // State for form data
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [location, setLocation] = useState('');
+  const [gender, setGender] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalMessage, setModalMessage] = useState('');
+  const [modalType, setModalType] = useState('success'); // 'success' or 'error'
 
-      // Fetch user data on mount
-      useEffect(() => {
-        const fetchUserData = async () => {
-          try {
-            const id = await AsyncStorage.getItem('id');
-            console.log('Retrieved ID from AsyncStorage:', id); // Debug log
-            if (!id) {
-              throw new Error('No user ID found. Please log in.');
-            }
-
-            const response = await fetch(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-              },
-            });
-            const contentType = response.headers.get('content-type');
-            const text = await response.text();
-
-            if (!contentType || !contentType.includes('application/json')) {
-              throw new Error('Invalid server response');
-            }
-
-            const result = JSON.parse(text);
-            console.log('Fetch User Data Response:', result); // Debug
-            if (result.success) {
-              const user = result.data;
-              setName(user.name || '');
-              setEmail(user.email || '');
-              setLocation(user.location || '');
-              setGender(user.gender || '');
-              setReferralCode(user.referral_code || '');
-            } else {
-              throw new Error(result.message || 'Failed to fetch user data');
-            }
-          } catch (error) {
-            console.error('Error fetching user data:', error.message);
-            Alert.alert('Error', error.message, [
-              { text: 'OK', onPress: () => router.push('/login') },
-            ]);
-          }
-        };
-        fetchUserData();
-      }, [router]);
-
-      // Function to handle form submission
-      const handleSave = async () => {
+  // Fetch user data on mount
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
         const id = await AsyncStorage.getItem('id');
-        console.log('ID during save:', id); // Debug log
+        console.log('Retrieved ID from AsyncStorage:', id); // Debug log
         if (!id) {
-          setModalMessage('No user ID found. Please log in.');
-          setModalType('error');
-          setModalVisible(true);
-          return;
+          throw new Error('No user ID found. Please log in.');
         }
 
-        const userData = { id, name, location, gender, referral_code: referralCode };
+        const response = await fetch(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        });
+        const contentType = response.headers.get('content-type');
+        const text = await response.text();
 
-        try {
-          const response = await fetch('https://cravii.ng/cravii/api/update_profile.php', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(userData),
-          });
-
-          const result = await response.json();
-          console.log('API Response:', result); // Debug the response
-
-          if (result.success) {
-            setModalMessage(result.message || 'Profile updated successfully!');
-            setModalType('success');
-          } else {
-            setModalMessage(result.message || 'Failed to update profile. Please try again.');
-            setModalType('error');
-          }
-        } catch (error) {
-          console.error('Error updating profile:', error);
-          setModalMessage('An error occurred. Please check your network.');
-          setModalType('error');
-        } finally {
-          setModalVisible(true);
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Invalid server response');
         }
-      };
 
-      return (
-        <View style={styles.container}>
-          <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
-          <ScrollView
-            style={styles.scrollViewContent}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
-              <View style={styles.userInfo}>
-                <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
-                <View>
-                  <Text style={styles.greeting}>Hello {name || 'User'}</Text>
-                  <View style={styles.location}>
-                    <Feather name="map-pin" size={16} color="#4ade80" />
-                    <Text style={styles.locationText}>{location}</Text>
-                  </View>
-                </View>
-              </View>
-              <TouchableOpacity style={styles.notificationButton}>
-                <Feather name="bell" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
+        const result = JSON.parse(text);
+        console.log('Fetch User Data Response:', result); // Debug
+        if (result.success) {
+          const user = result.data;
+          setName(user.name || '');
+          setEmail(user.email || '');
+          setLocation(user.location || '');
+          setGender(user.gender || '');
+          setReferralCode(user.referral_code || '');
+        } else {
+          throw new Error(result.message || 'Failed to fetch user data');
+        }
+      } catch (error) {
+        console.error('Error fetching user data:', error.message);
+        Alert.alert('Error', error.message, [
+          { text: 'OK', onPress: () => router.push('/login') },
+        ]);
+      }
+    };
+    fetchUserData();
+  }, [router]);
 
-            {/* Profile Section */}
-            <View style={styles.profileSection}>
-              <Text style={styles.profileTitle}>Profile Details</Text>
-              <View style={styles.profileCard}>
-                <TextInput
-                  style={styles.profileInfoInput}
-                  value={name}
-                  onChangeText={setName}
-                  placeholder="Name"
-                />
-                <TextInput
-                  style={[styles.profileInfoInput, styles.readOnlyInput]}
-                  value={email}
-                  editable={false} // Read-only email
-                  placeholder="Email"
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-                <TextInput
-                  style={styles.profileInfoInput}
-                  value={location}
-                  onChangeText={setLocation}
-                  placeholder="Location"
-                />
-                <TextInput
-                  style={styles.profileInfoInput}
-                  value={gender}
-                  onChangeText={setGender}
-                  placeholder="Gender (e.g., Male/Female/Other)"
-                />
-                <TextInput
-                  style={[styles.profileInfoInput, styles.readOnlyInput]}
-                  value={referralCode}
-                  editable={false} // Read-only referral code
-                  placeholder="Referral Code"
-                />
-                <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Settings */}
-            <View style={styles.settingsSection}>
-              <Text style={styles.profileTitle}>Settings</Text>
-              <TouchableOpacity style={styles.settingItem}>
-                <Feather name="edit" size={20} color="#333" />
-                <Text style={styles.settingText}>Edit Profile</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.settingItem}>
-                <Feather name="lock" size={20} color="#333" />
-                <Text style={styles.settingText}>Change Password</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/influencers')}>
-                <Feather name="dollar-sign" size={20} color="#333" />
-                <Text style={styles.settingText}>Influencer Program</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.settingItem}
-                onPress={() => {
-                  AsyncStorage.removeItem('id');
-                  router.push('/login');
-                }}
-              >
-                <Feather name="log-out" size={20} color="#333" />
-                <Text style={styles.settingText}>Logout</Text>
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-
-          {/* Bottom Navigation */}
-          <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
-            <TouchableOpacity style={styles.navItem} onPress={() => router.push('/restaurant')}>
-              <Feather name="home" size={24} color="#999" />
-              <Text style={styles.navText}>Home</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => router.push('/search')}>
-              <Feather name="search" size={24} color="#999" />
-              <Text style={styles.navText}>Search</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => router.push('/cart')}>
-              <Feather name="shopping-cart" size={24} color="#999" />
-              <Text style={styles.navText}>My Cart</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.navItem} onPress={() => router.push('/profile')}>
-              <Feather name="user" size={24} color="#ff5722" />
-              <Text style={styles.navTextActive}>Profile</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Custom Modal */}
-          <Modal
-            transparent={true}
-            visible={modalVisible}
-            onRequestClose={() => setModalVisible(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <Text style={styles.modalText}>
-                  {modalType === 'success' ? '✅ ' : '❌ '} {modalMessage}
-                </Text>
-                <Pressable
-                  style={styles.modalButton}
-                  onPress={() => setModalVisible(false)}
-                >
-                  <Text style={styles.modalButtonText}>OK</Text>
-                </Pressable>
-              </View>
-            </View>
-          </Modal>
-        </View>
-      );
+  // Function to handle form submission
+  const handleSave = async () => {
+    const id = await AsyncStorage.getItem('id');
+    console.log('ID during save:', id); // Debug log
+    if (!id) {
+      setModalMessage('No user ID found. Please log in.');
+      setModalType('error');
+      setModalVisible(true);
+      return;
     }
 
-   const styles = StyleSheet.create({
+    const userData = { id, name, location, gender, referral_code: referralCode };
+
+    try {
+      const response = await fetch('https://cravii.ng/cravii/api/update_profile.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      const result = await response.json();
+      console.log('API Response:', result); // Debug the response
+
+      if (result.success) {
+        setModalMessage(result.message || 'Profile updated successfully!');
+        setModalType('success');
+      } else {
+        setModalMessage(result.message || 'Failed to update profile. Please try again.');
+        setModalType('error');
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      setModalMessage('An error occurred. Please check your network.');
+      setModalType('error');
+    } finally {
+      setModalVisible(true);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      <ScrollView
+        style={styles.scrollViewContent}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
+          <View style={styles.userInfo}>
+            <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
+            <View>
+              <Text style={styles.greeting}>Hello братишка {name || 'User'}</Text>
+              <View style={styles.location}>
+                <Feather name="map-pin" size={16} color="#4ade80" />
+                <Text style={styles.locationText}>{location}</Text>
+              </View>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.notificationButton}>
+            <Feather name="bell" size={24} color="#333" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Profile Section */}
+        <View style={styles.profileSection}>
+          <Text style={styles.profileTitle}>Profile Details</Text>
+          <View style={styles.profileCard}>
+            <TextInput
+              style={styles.profileInfoInput}
+              value={name}
+              onChangeText={setName}
+              placeholder="Name"
+            />
+            <TextInput
+              style={[styles.profileInfoInput, styles.readOnlyInput]}
+              value={email}
+              editable={false} // Read-only email
+              placeholder="Email"
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            <TextInput
+              style={styles.profileInfoInput}
+              value={location}
+              onChangeText={setLocation}
+              placeholder="Location"
+            />
+            <TextInput
+              style={styles.profileInfoInput}
+              value={gender}
+              onChangeText={setGender}
+              placeholder="Gender (e.g., Male/Female/Other)"
+            />
+            <TextInput
+              style={[styles.profileInfoInput, styles.readOnlyInput]}
+              value={referralCode}
+              editable={false} // Read-only referral code
+              placeholder="Referral Code"
+            />
+            <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+              <Text style={styles.saveButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Settings */}
+        <View style={styles.settingsSection}>
+          <Text style={styles.profileTitle}>Settings</Text>
+          <TouchableOpacity style={styles.settingItem}>
+            <Feather name="edit" size={20} color="#333" />
+            <Text style={styles.settingText}>Edit Profile</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingItem}>
+            <Feather name="lock" size={20} color="#333" />
+            <Text style={styles.settingText}>Change Password</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/likes')}>
+            <Feather name="heart" size={20} color="#333" />
+            <Text style={styles.settingText}>Liked Recipes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.settingItem} onPress={() => router.push('/influencers')}>
+            <Feather name="dollar-sign" size={20} color="#333" />
+            <Text style={styles.settingText}>Influencer Program</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => {
+              AsyncStorage.removeItem('id');
+              router.push('/login');
+            }}
+          >
+            <Feather name="log-out" size={20} color="#333" />
+            <Text style={styles.settingText}>Logout</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* Bottom Navigation */}
+      <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/restaurant')}>
+          <Feather name="home" size={24} color="#999" />
+          <Text style={styles.navText}>Home</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/search')}>
+          <Feather name="search" size={24} color="#999" />
+          <Text style={styles.navText}>Search</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/cart')}>
+          <Feather name="shopping-cart" size={24} color="#999" />
+          <Text style={styles.navText}>My Cart</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/profile')}>
+          <Feather name="user" size={24} color="#ff5722" />
+          <Text style={styles.navTextActive}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Custom Modal */}
+      <Modal
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalText}>
+              {modalType === 'success' ? '✅ ' : '❌ '} {modalMessage}
+            </Text>
+            <Pressable
+              style={styles.modalButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5', // Softer background for a modern look

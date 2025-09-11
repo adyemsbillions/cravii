@@ -240,7 +240,7 @@ export default function Cart() {
       </ScrollView>
 
       <View style={[styles.bottomNav, { paddingBottom: insets.bottom }]}>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/')}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/restaurant')}>
           <Feather name="home" size={24} color="#999" />
           <Text style={styles.navText}>Home</Text>
         </TouchableOpacity>

@@ -1,4 +1,3 @@
-
 import { Feather, Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
@@ -54,7 +53,19 @@ interface ApiResponse<T> {
 
 // Reusable RecipeCard component
 const RecipeCard = memo(
-  ({ recipe, onPress, onAddToCart, isMoreRecipes }: { recipe: Recipe; onPress: () => void; onAddToCart: () => void; isMoreRecipes?: boolean }) => (
+  ({
+    recipe,
+    onPress,
+    onLikeToggle,
+    isLiked,
+    isMoreRecipes,
+  }: {
+    recipe: Recipe;
+    onPress: () => void;
+    onLikeToggle: () => void;
+    isLiked: boolean;
+    isMoreRecipes?: boolean;
+  }) => (
     <TouchableOpacity
       style={isMoreRecipes ? styles.moreRecipeCard : styles.recipeCard}
       onPress={onPress}
@@ -70,9 +81,6 @@ const RecipeCard = memo(
         style={isMoreRecipes ? styles.moreRecipeImage : styles.recipeImage}
         onError={(e) => console.log(`Image load error for ${recipe.image_url}:`, e.nativeEvent.error)}
       />
-      <TouchableOpacity style={styles.heartIcon}>
-        <Feather name="heart" size={isMoreRecipes ? 18 : 18} color="#ff5722" />
-      </TouchableOpacity>
       <View style={[styles.recipeInfo, isMoreRecipes ? styles.moreRecipeInfo : {}]}>
         <Text style={[styles.recipeName, isMoreRecipes ? styles.moreRecipeName : {}]}>{recipe.name}</Text>
         <Text
@@ -86,8 +94,13 @@ const RecipeCard = memo(
           <Text style={[styles.recipePrice, isMoreRecipes ? styles.moreRecipePrice : {}]}>
             {`₦${recipe.price || '0.00'}`}
           </Text>
-          <TouchableOpacity style={styles.addIcon} onPress={onAddToCart}>
-            <Feather name="plus" size={isMoreRecipes ? 16 : 16} color="#fff" />
+          <TouchableOpacity style={styles.heartIcon} onPress={onLikeToggle}>
+            <Feather
+              name="heart"
+              size={isMoreRecipes ? 16 : 16}
+              color={isLiked ? '#ff5722' : '#999'}
+              style={isLiked ? styles.heartIconFilled : {}}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -113,6 +126,8 @@ export default function Dashboard() {
   // State for cart and notification counts
   const [cartCount, setCartCount] = useState(0);
   const [notificationCount, setNotificationCount] = useState(0);
+  // State for liked recipes
+  const [likedRecipes, setLikedRecipes] = useState<string[]>([]);
 
   // Shuffle function to randomize array
   const shuffleArray = (array: Recipe[]): Recipe[] => {
@@ -158,27 +173,32 @@ export default function Dashboard() {
     }
   };
 
-  // Add to cart function
-  const addToCart = async (recipe: Recipe) => {
+  // Toggle like function
+  const toggleLike = async (recipe: Recipe) => {
     try {
-      const cart = await AsyncStorage.getItem('cart');
-      let cartItems = cart ? JSON.parse(cart) : [];
-      const existingItem = cartItems.find((item: Recipe & { quantity: number }) => item.id === recipe.id);
-      if (existingItem) {
-        existingItem.quantity += 1;
+      const likes = await AsyncStorage.getItem('likes');
+      let likedItems: Recipe[] = likes ? JSON.parse(likes) : [];
+      const isCurrentlyLiked = likedItems.some((item) => item.id === recipe.id);
+
+      if (isCurrentlyLiked) {
+        // Unlike: Remove from likes
+        likedItems = likedItems.filter((item) => item.id !== recipe.id);
+        setLikedRecipes(likedRecipes.filter((id) => id !== recipe.id));
+        console.log('Removed from likes:', recipe.name);
       } else {
-        cartItems.push({ ...recipe, quantity: 1 });
+        // Like: Add to likes
+        likedItems.push(recipe);
+        setLikedRecipes([...likedRecipes, recipe.id]);
+        console.log('Added to likes:', recipe.name);
       }
-      await AsyncStorage.setItem('cart', JSON.stringify(cartItems));
-      const totalItems = cartItems.reduce((sum: number, item: { quantity: number }) => sum + item.quantity, 0);
-      setCartCount(totalItems);
-      console.log('Added to cart:', recipe.name);
+
+      await AsyncStorage.setItem('likes', JSON.stringify(likedItems));
     } catch (error) {
-      console.error('Error adding to cart:', error);
+      console.error('Error toggling like:', error);
     }
   };
 
-  // Fetch user data, dynamic content, cart count, and notification count on mount
+  // Fetch user data, dynamic content, cart count, notification count, and liked recipes on mount
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -253,6 +273,11 @@ export default function Dashboard() {
           console.error('Failed to fetch notifications:', notificationsResult.message);
           setNotificationCount(0);
         }
+
+        // Fetch liked recipes
+        const likes = await AsyncStorage.getItem('likes');
+        const likedItems: Recipe[] = likes ? JSON.parse(likes) : [];
+        setLikedRecipes(likedItems.map((item) => item.id));
       } catch (error) {
         console.error('Error fetching data:', error);
       }
@@ -415,7 +440,8 @@ export default function Dashboard() {
                   params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
                 })
               }
-              onAddToCart={() => addToCart(recipe)}
+              onLikeToggle={() => toggleLike(recipe)}
+              isLiked={likedRecipes.includes(recipe.id)}
             />
           ))}
         </ScrollView>
@@ -440,7 +466,8 @@ export default function Dashboard() {
                     params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
                   })
                 }
-                onAddToCart={() => addToCart(recipe)}
+                onLikeToggle={() => toggleLike(recipe)}
+                isLiked={likedRecipes.includes(recipe.id)}
               />
             ))
           ) : (
@@ -739,15 +766,15 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
   },
   heartIcon: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
     backgroundColor: 'rgba(255,255,255,0.8)',
     borderRadius: 15,
     width: 30,
     height: 30,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  heartIconFilled: {
+    // Additional styles for filled heart can be added here if needed
   },
   recipeInfo: {
     padding: 15,
@@ -785,14 +812,6 @@ const styles = StyleSheet.create({
   },
   moreRecipePrice: {
     fontSize: 17,
-  },
-  addIcon: {
-    backgroundColor: '#ff5722',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   noRecipesText: {
     fontSize: 16,

@@ -89,16 +89,16 @@ export default function HomeScreen() {
               <Text style={styles.orText}>Or continue with</Text>
               <View style={styles.socialGrid}>
                 <TouchableOpacity style={styles.socialCard}>
-                  <Feather name="facebook" size={28} color="#3b5998" />
-                  <Text style={styles.socialText}>Facebook</Text>
+                  <Feather name="shopping-bag" size={28} color="#3b5998" />
+                  <Text style={styles.socialText}>Order</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.socialCard}>
-                  <Feather name="globe" size={28} color="#db4437" />
-                  <Text style={styles.socialText}>Google</Text>
+                  <Feather name="utensils" size={28} color="#db4437" />
+                  <Text style={styles.socialText}>Eat</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.socialCard}>
-                  <Feather name="twitter" size={28} color="#1da1f2" />
-                  <Text style={styles.socialText}>Twitter</Text>
+                  <Feather name="refresh-cw" size={28} color="#1da1f2" />
+                  <Text style={styles.socialText}>Repeat</Text>
                 </TouchableOpacity>
               </View>
             </View>

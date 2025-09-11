@@ -1,16 +1,15 @@
-
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { memo, useEffect, useState } from 'react';
 import {
-    Dimensions,
-    Image,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -38,7 +37,7 @@ interface ApiResponse<T> {
   message?: string;
 }
 
-// Reusable RecipeCard component (same as in Dashboard.tsx)
+// Reusable RecipeCard component
 const RecipeCard = memo(
   ({ recipe, onPress, onAddToCart, isMoreRecipes }: { recipe: Recipe; onPress: () => void; onAddToCart: () => void; isMoreRecipes?: boolean }) => (
     <TouchableOpacity
@@ -56,9 +55,6 @@ const RecipeCard = memo(
         style={isMoreRecipes ? styles.moreRecipeImage : styles.recipeImage}
         onError={(e) => console.log(`Image load error for ${recipe.image_url}:`, e.nativeEvent.error)}
       />
-      <TouchableOpacity style={styles.heartIcon}>
-        <Feather name="heart" size={isMoreRecipes ? 18 : 18} color="#ff5722" />
-      </TouchableOpacity>
       <View style={[styles.recipeInfo, isMoreRecipes ? styles.moreRecipeInfo : {}]}>
         <Text style={[styles.recipeName, isMoreRecipes ? styles.moreRecipeName : {}]}>{recipe.name}</Text>
         <Text 
@@ -72,9 +68,9 @@ const RecipeCard = memo(
           <Text style={[styles.recipePrice, isMoreRecipes ? styles.moreRecipePrice : {}]}>
             {`₦${recipe.price || '0.00'}`}
           </Text>
-          <TouchableOpacity style={styles.addIcon} onPress={onAddToCart}>
-            <Feather name="plus" size={isMoreRecipes ? 16 : 16} color="#fff" />
-          </TouchableOpacity>
+          <View style={styles.heartIcon}>
+            <Feather name="heart" size={isMoreRecipes ? 16 : 16} color="#ff5722" />
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -292,10 +288,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
   },
   heartIcon: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    backgroundColor: '#ff5722',
     borderRadius: 15,
     width: 30,
     height: 30,
@@ -338,14 +331,6 @@ const styles = StyleSheet.create({
   },
   moreRecipePrice: {
     fontSize: 17,
-  },
-  addIcon: {
-    backgroundColor: '#ff5722',
-    borderRadius: 15,
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   noRecipesText: {
     fontSize: 16,

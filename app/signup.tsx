@@ -396,7 +396,7 @@ export default function SignUpScreen() {
                 ]}
               >
                 {/* Header Section */}
-                <View style={styles.headerSection}>
+                {/* <View style={styles.headerSection}>
                   <Text style={styles.welcomeText}>Welcome to</Text>
                   <LinearGradient
                     colors={['#FF6B35', '#F7931E']}
@@ -407,7 +407,7 @@ export default function SignUpScreen() {
                     <Text style={styles.brandText}>Cravii</Text>
                   </LinearGradient>
                   <Text style={styles.taglineText}>Satisfy Your Cravings Instantly</Text>
-                </View>
+                </View> */}
 
                 {/* Main Card */}
                 <Animated.View 
@@ -483,11 +483,11 @@ export default function SignUpScreen() {
                   <View style={styles.socialSection}>
                     <View style={styles.dividerContainer}>
                       <View style={styles.divider} />
-                      <Text style={styles.orText}>or continue with</Text>
+                      <Text style={styles.orText}>Satisfy Your Cravings</Text>
                       <View style={styles.divider} />
                     </View>
 
-                    <View style={styles.socialGrid}>
+                    {/* <View style={styles.socialGrid}>
                       {[
                         { name: 'Google', icon: 'chrome', color: '#DB4437' },
                         { name: 'Facebook', icon: 'facebook', color: '#4267B2' },
@@ -499,7 +499,7 @@ export default function SignUpScreen() {
                           </View>
                         </TouchableOpacity>
                       ))}
-                    </View>
+                    </View> */}
                   </View>
                 </Animated.View>
 

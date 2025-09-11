@@ -356,23 +356,15 @@ export default function LoginScreen() {
               <View style={styles.socialSection}>
                 <View style={styles.dividerContainer}>
                   <View style={styles.divider} />
-                  <Text style={styles.orText}>Or continue with</Text>
+                  <Text style={styles.orText}>Here At Cravii</Text>
                   <View style={styles.divider} />
                 </View>
                 
-                <View style={styles.socialGrid}>
-                  {[
-                    { name: 'Facebook', icon: 'facebook', color: '#3b5998' },
-                    { name: 'Google', icon: 'chrome', color: '#db4437' },
-                    { name: 'Apple', icon: 'smartphone', color: '#000000' },
-                  ].map((social, index) => (
-                    <TouchableOpacity key={index} style={styles.socialCard} activeOpacity={0.8}>
-                      <View style={[styles.socialIconContainer, { backgroundColor: `${social.color}15` }]}>
-                        <Feather name={social.icon as keyof typeof Feather.glyphMap} size={24} color={social.color} />
-                      </View>
-                      <Text style={styles.socialText}>{social.name}</Text>
-                    </TouchableOpacity>
-                  ))}
+                <View style={styles.foodContainer}>
+                  {/* <Text style={styles.foodText}>Savor the flavors of your favorite meals</Text> */}
+                  <Text style={styles.foodText}>Order delicious dishes with ease</Text>
+                  <Text style={styles.foodText}>Satisfy Your cravins</Text>
+                  {/* <Text style={styles.foodText}>Start your culinary adventure today!</Text> */}
                 </View>
               </View>
 
@@ -578,38 +570,25 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     paddingHorizontal: 16,
   },
-  socialGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    paddingHorizontal: 10,
-  },
-  socialCard: {
+  foodContainer: {
     backgroundColor: 'rgba(255,255,255,0.9)',
     borderRadius: 15,
-    padding: 15,
+    padding: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    width: (width - 80) / 3,
-    height: 80,
+    width: width - 40,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  socialIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  socialText: {
+  foodText: {
     color: '#333',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
+    textAlign: 'center',
+    marginVertical: 5,
   },
   bottomSection: {
     alignItems: 'center',
