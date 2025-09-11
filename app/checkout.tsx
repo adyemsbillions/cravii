@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -49,6 +50,7 @@ const fetchWithRetry = async (url: string, options: RequestInit, retries: number
     } catch (error) {
       console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
       if (i < retries - 1) await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i)));
+      else throw error; // Rethrow on last attempt
     }
   }
   throw new Error(`Fetch failed after ${retries} attempts`);
@@ -64,6 +66,7 @@ export default function Checkout() {
   const [deliveryAddress, setDeliveryAddress] = useState<string>('');
   const [phoneNumber, setPhoneNumber] = useState<string>('');
   const [userLocation, setUserLocation] = useState<string>('');
+  const [restaurantAddress, setRestaurantAddress] = useState<string>('');
   const [total, setTotal] = useState<string>('0.00');
   const [showWebView, setShowWebView] = useState<boolean>(false);
   const [paymentUrl, setPaymentUrl] = useState<string>('');
@@ -74,11 +77,14 @@ export default function Checkout() {
   const [isCouponValid, setIsCouponValid] = useState<boolean>(false);
   const [fee, setFee] = useState<Fee | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [restaurantFetchError, setRestaurantFetchError] = useState<boolean>(false);
+  const [isPaying, setIsPaying] = useState<boolean>(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
+      setRestaurantFetchError(false); // Reset error state
       try {
         const id = await AsyncStorage.getItem('id');
         console.log('Fetched user ID:', id);
@@ -88,7 +94,14 @@ export default function Checkout() {
           return;
         }
 
-        const [userResponse, feeResponse] = await Promise.all([
+        const cart = await AsyncStorage.getItem('cart');
+        let items: CartItem[] = [];
+        if (cart) {
+          items = JSON.parse(cart);
+          setCartItems(items);
+        }
+
+        const fetchPromises = [
           fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
@@ -99,11 +112,30 @@ export default function Checkout() {
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
           }),
+        ];
+
+        // Fetch restaurant address if there are cart items
+        if (items.length > 0 && items[0]?.restaurantId) {
+          fetchPromises.push(
+            fetchWithRetry(`https://cravii.ng/cravii/api/fetch_restaurant_address.php?restaurant_id=${items[0].restaurantId}`, {
+              method: 'GET',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+            })
+          );
+        }
+
+        const [userResponse, feeResponse, restaurantResponse] = await Promise.all(fetchPromises);
+
+        const [userResult, feeResult, restaurantResult] = await Promise.all([
+          userResponse.json(),
+          feeResponse.json(),
+          restaurantResponse ? restaurantResponse.json() : Promise.resolve(null),
         ]);
 
-        const [userResult, feeResult] = await Promise.all([userResponse.json(), feeResponse.json()]);
         console.log('User API response:', userResult);
         console.log('Fee API response:', feeResult);
+        console.log('Restaurant API response:', restaurantResult);
 
         if (userResult.success) {
           const user = userResult.data;
@@ -116,12 +148,30 @@ export default function Checkout() {
           return;
         }
 
-        const cart = await AsyncStorage.getItem('cart');
-        if (cart) {
-          const items = JSON.parse(cart);
-          setCartItems(items);
+        if (items.length > 0) {
           if (feeResult.success) {
-            setFee(feeResult.data);
+            let fetchedFees = feeResult.data;
+            if (restaurantResult?.success) {
+              // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
+              if (
+                restaurantResult.address.toLowerCase().includes('unimaid') &&
+                (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
+              ) {
+                console.log('Fee override applied for restaurant address:', restaurantResult.address, 'and userLocation:', userLocation);
+                fetchedFees = { delivery_fee: '200', vat_fee: '150' };
+              }
+              setRestaurantAddress(restaurantResult.address);
+            } else {
+              console.error('Failed to fetch restaurant address:', restaurantResult?.message || 'Unknown error');
+              setRestaurantFetchError(true);
+              Alert.alert(
+                'Warning',
+                'Unable to fetch restaurant details. Default fees are applied, which may not reflect Unimaid discounts.',
+                [{ text: 'OK' }]
+              );
+              setRestaurantAddress('');
+            }
+            setFee(fetchedFees);
           } else {
             Alert.alert('Error', 'Failed to fetch fees. Please try again later.', [{ text: 'OK' }]);
             setIsLoading(false);
@@ -131,19 +181,28 @@ export default function Checkout() {
         }
       } catch (error) {
         console.error('Fetch data error:', error);
-        Alert.alert('Error', 'Failed to load data. Please check your network or try again later.', [{ text: 'OK' }]);
+        if (String(error).includes('HTTP 403')) {
+          setRestaurantFetchError(true);
+          Alert.alert(
+            'Warning',
+            'Unable to fetch restaurant details due to server restrictions. Default fees are applied, which may not reflect Unimaid discounts.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert('Error', 'Failed to load data. Please check your network or try again later.', [{ text: 'OK' }]);
+        }
       } finally {
         setIsLoading(false);
       }
     };
     fetchData();
-  }, []);
+  }, [userLocation]);
 
   useEffect(() => {
     if (cartItems.length > 0 && fee) {
       calculateTotal(cartItems);
     }
-  }, [cartItems, fee, isCouponValid]);
+  }, [cartItems, fee, isCouponValid, userLocation]);
 
   useEffect(() => {
     if (showSuccessModal) {
@@ -158,9 +217,18 @@ export default function Checkout() {
   const calculateTotal = (items: CartItem[]) => {
     if (!fee) return;
     const subtotal = items.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
-    const vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
+    let deliveryFee = parseFloat(fee.delivery_fee);
+    let vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
+    // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
+    if (
+      restaurantAddress.toLowerCase().includes('unimaid') &&
+      (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
+    ) {
+      console.log('Fee override applied in calculateTotal for restaurant address:', restaurantAddress, 'and userLocation:', userLocation);
+      deliveryFee = 200;
+      vatFee = 150;
+    }
     const paystackFee = subtotal >= 2500 ? (subtotal * 0.015) + 100 : 0;
-    const deliveryFee = parseFloat(fee.delivery_fee);
     const totalVatFee = isCouponValid ? vatFee * 0.8 : vatFee;
     const calculatedTotal = (subtotal + totalVatFee + paystackFee + deliveryFee).toFixed(2);
     setTotal(calculatedTotal);
@@ -230,28 +298,58 @@ export default function Checkout() {
       return;
     }
 
-    calculateTotal(cartItems);
-    const subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
-    const vatFee = parseFloat(fee.vat_fee); // Apply VAT fee once per purchase
-    const paystackFee = subtotal >= 2500 ? (subtotal * 0.015) + 100 : 0;
-    const totalVatFee = isCouponValid ? vatFee * 0.8 : vatFee;
-    const deliveryFee = parseFloat(fee.delivery_fee);
-    const finalTotal = (subtotal + totalVatFee + paystackFee + deliveryFee).toFixed(2);
-    console.log('Synced UI Total:', total, 'Final Total:', finalTotal);
+    if (restaurantFetchError) {
+      Alert.alert(
+        'Warning',
+        'Restaurant details unavailable. Proceeding with default fees, which may not reflect Unimaid discounts. Continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Proceed',
+            onPress: async () => {
+              await proceedWithPayment();
+            },
+          },
+        ]
+      );
+    } else {
+      await proceedWithPayment();
+    }
+  };
 
-    const payload = {
-      deliveryAddress,
-      phoneNumber,
-      userLocation,
-      cartItems,
-      total: finalTotal,
-      restaurant_id: cartItems[0]?.restaurantId || '1',
-      vat_fee: totalVatFee.toFixed(2),
-      delivery_fee: deliveryFee.toFixed(2),
-      paystack_fee: paystackFee.toFixed(2),
-    };
-
+  const proceedWithPayment = async () => {
+    setIsPaying(true);
     try {
+      calculateTotal(cartItems);
+      const subtotal = cartItems.reduce((sum, item) => sum + parseFloat(item.price.replace('₦', '') || '0') * item.quantity, 0);
+      let deliveryFee = parseFloat(fee!.delivery_fee);
+      let vatFee = parseFloat(fee!.vat_fee); // Apply VAT fee once per purchase
+      // Override fees if both restaurant address contains "unimaid" and userLocation contains "unimaid" or "university of maiduguri"
+      if (
+        restaurantAddress.toLowerCase().includes('unimaid') &&
+        (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri'))
+      ) {
+        console.log('Fee override applied in handlePayment for restaurant address:', restaurantAddress, 'and userLocation:', userLocation);
+        deliveryFee = 200;
+        vatFee = 150;
+      }
+      const paystackFee = subtotal >= 2500 ? (subtotal * 0.015) + 100 : 0;
+      const totalVatFee = isCouponValid ? vatFee * 0.8 : vatFee;
+      const finalTotal = (subtotal + totalVatFee + paystackFee + deliveryFee).toFixed(2);
+      console.log('Synced UI Total:', total, 'Final Total:', finalTotal);
+
+      const payload = {
+        deliveryAddress,
+        phoneNumber,
+        userLocation,
+        cartItems,
+        total: finalTotal,
+        restaurant_id: cartItems[0]?.restaurantId || '1',
+        vat_fee: totalVatFee.toFixed(2),
+        delivery_fee: deliveryFee.toFixed(2),
+        paystack_fee: paystackFee.toFixed(2),
+      };
+
       const response = await fetchWithRetry('https://cravii.ng/cravii/api/process_checkout.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -283,6 +381,8 @@ export default function Checkout() {
       } else {
         Alert.alert('Payment Error', error.message || 'Try again.', [{ text: 'OK' }]);
       }
+    } finally {
+      setIsPaying(false);
     }
   };
 
@@ -348,7 +448,7 @@ export default function Checkout() {
         <View style={styles.inputContainer}>
           <TextInput
             style={styles.input}
-            placeholder="Delivery Address"
+            placeholder="City"
             value={deliveryAddress}
             onChangeText={setDeliveryAddress}
           />
@@ -361,7 +461,7 @@ export default function Checkout() {
           />
           <TextInput
             style={styles.input}
-            placeholder="Your Location"
+            placeholder="Delivery Location"
             value={userLocation}
             onChangeText={setUserLocation}
           />
@@ -407,13 +507,13 @@ export default function Checkout() {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>VAT ({isCouponValid ? '20% off' : ''}):</Text>
               <Text style={styles.summaryValue}>
-                ₦{(isCouponValid ? (parseFloat(fee.vat_fee) * 0.8) : parseFloat(fee.vat_fee)).toFixed(2)}
+                ₦{(isCouponValid ? (parseFloat(restaurantAddress.toLowerCase().includes('unimaid') && (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri')) ? '150' : fee.vat_fee) * 0.8) : parseFloat(restaurantAddress.toLowerCase().includes('unimaid') && (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri')) ? '150' : fee.vat_fee)).toFixed(2)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Delivery Fee:</Text>
               <Text style={styles.summaryValue}>
-                ₦{parseFloat(fee.delivery_fee).toFixed(2)}
+                ₦{(parseFloat(restaurantAddress.toLowerCase().includes('unimaid') && (userLocation.toLowerCase().includes('unimaid') || userLocation.toLowerCase().includes('university of maiduguri')) ? '200' : fee.delivery_fee)).toFixed(2)}
               </Text>
             </View>
             {subtotal >= 2500 && (
@@ -428,6 +528,11 @@ export default function Checkout() {
               <Text style={styles.summaryLabelTotal}>Total:</Text>
               <Text style={styles.summaryValueTotal}>{`₦${total}`}</Text>
             </View>
+            {restaurantFetchError && (
+              <Text style={styles.warningText}>
+                Note: Using default fees due to unavailable restaurant details. Unimaid discounts may not apply.
+              </Text>
+            )}
           </View>
         )}
         <View style={[styles.deliveryCard, { marginTop: 15 }]}>
@@ -438,8 +543,16 @@ export default function Checkout() {
           />
         </View>
         {cartItems.length > 0 && !isLoading && (
-          <TouchableOpacity style={styles.payButton} onPress={handlePayment}>
-            <Text style={styles.payText}>Pay Now</Text>
+          <TouchableOpacity
+            style={[styles.payButton, isPaying && styles.payButtonDisabled]}
+            onPress={handlePayment}
+            disabled={isPaying}
+          >
+            {isPaying ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.payText}>Pay Now</Text>
+            )}
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -654,6 +767,12 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: 16, color: '#333', fontWeight: '500' },
   summaryLabelTotal: { fontSize: 18, color: '#333', fontWeight: '700' },
   summaryValueTotal: { fontSize: 18, color: '#e63946', fontWeight: '700' },
+  warningText: {
+    fontSize: 14,
+    color: '#ff5722',
+    textAlign: 'center',
+    marginTop: 10,
+  },
   deliveryCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -681,17 +800,6 @@ const styles = StyleSheet.create({
     height: 40,
     resizeMode: 'contain',
   },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    marginTop: 10,
-  },
-  totalText: { fontSize: 18, fontWeight: '700', color: '#333' },
-  totalAmount: { fontSize: 18, fontWeight: '700', color: '#e63946' },
   payButton: {
     backgroundColor: '#ff5722',
     borderRadius: 25,
@@ -700,7 +808,15 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginTop: 20,
   },
-  payText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  payButtonDisabled: {
+    backgroundColor: '#ff8c66',
+    opacity: 0.7,
+  },
+  payText: { 
+    color: '#fff', 
+    fontSize: 16, 
+    fontWeight: '600' 
+  },
   webviewContainer: {
     position: 'absolute',
     top: 0,
