@@ -49,7 +49,7 @@ const RecipeCard = memo(
       <Image
         source={
           recipe.image_url
-            ? { uri: `https://cravii.ng/cravii/api/${recipe.image_url}` }
+            ? { uri: `https://cravii.ng/cravii/api/uploads/${recipe.image_url}` }
             : PLACEHOLDER_RECIPE
         }
         style={styles.recipeImage}

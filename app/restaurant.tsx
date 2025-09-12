@@ -128,6 +128,8 @@ export default function Dashboard() {
   const [notificationCount, setNotificationCount] = useState(0);
   // State for liked recipes
   const [likedRecipes, setLikedRecipes] = useState<string[]>([]);
+  // State for error message
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Shuffle function to randomize array
   const shuffleArray = (array: Recipe[]): Recipe[] => {
@@ -202,12 +204,15 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        setErrorMessage(''); // Clear previous error messages
+
         // Fetch user data
         const id = await AsyncStorage.getItem('id');
         if (id) {
           const userResponse = await fetch(`https://cravii.ng/cravii/api/get_user.php?id=${id}`, {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' },
+            cache: 'no-store',
           });
           const userResult: ApiResponse<User> = await userResponse.json();
           if (userResult.success) {
@@ -225,6 +230,7 @@ export default function Dashboard() {
         const categoriesResponse = await fetch('https://cravii.ng/cravii/api/get_categories.php', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
         });
         const categoriesResult: ApiResponse<Category[]> = await categoriesResponse.json();
         if (categoriesResult.success) {
@@ -239,13 +245,14 @@ export default function Dashboard() {
         const recipesResponse = await fetch('https://cravii.ng/cravii/api/get_recipes.php', {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
         });
         const recipesResult: ApiResponse<Recipe[]> = await recipesResponse.json();
         if (recipesResult.success) {
           console.log('Fetched Recipes:', recipesResult.data);
           const fetchedRecipes = recipesResult.data || [];
           setAllRecipes(fetchedRecipes);
-          setPopularRecipes(fetchedRecipes.slice(0, 5));
+          setPopularRecipes(shuffleArray(fetchedRecipes).slice(0, 5));
           setMoreRecipes(shuffleArray(fetchedRecipes));
         } else {
           console.error('Failed to fetch recipes:', recipesResult.message);
@@ -264,6 +271,7 @@ export default function Dashboard() {
         const notificationsResponse = await fetch(`https://cravii.ng/cravii/api/get_notifications.php?user_id=${id}`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json' },
+          cache: 'no-store',
         });
         const notificationsResult = await notificationsResponse.json();
         if (notificationsResult.success) {
@@ -278,18 +286,24 @@ export default function Dashboard() {
         const likes = await AsyncStorage.getItem('likes');
         const likedItems: Recipe[] = likes ? JSON.parse(likes) : [];
         setLikedRecipes(likedItems.map((item) => item.id));
-      } catch (error) {
-        console.error('Error fetching data:', error);
+      } catch (error: any) {
+        if (error.message.includes('Network request failed')) {
+          setErrorMessage('Internet is not stable');
+        } else {
+          setErrorMessage('An error occurred while fetching data');
+          console.error('Error fetching data:', error);
+        }
       }
     };
     fetchData();
   }, []);
 
-  // Shuffle moreRecipes every hour
+  // Shuffle popularRecipes and moreRecipes every hour
   useEffect(() => {
     const interval = setInterval(() => {
       if (allRecipes.length > 0 && searchQuery.trim() === '') {
-        console.log('Shuffling more recipes');
+        console.log('Shuffling recipes');
+        setPopularRecipes(shuffleArray(allRecipes).slice(0, 5));
         setMoreRecipes(shuffleArray(allRecipes));
       }
     }, 3600 * 1000); // Every hour
@@ -304,176 +318,185 @@ export default function Dashboard() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
-          <View style={styles.userInfo}>
-            <TouchableOpacity onPress={() => router.push('/profile')} accessibilityRole="button" accessibilityLabel="Go to profile">
-              <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
-            </TouchableOpacity>
-            <View>
-              <Text style={styles.greeting}>Hello {name || 'User'}</Text>
-              <View style={styles.location}>
-                <Feather name="map-pin" size={16} color="#4ade80" />
-                <Text style={styles.locationText}>{location || 'N.Y Bronx'}</Text>
-              </View>
-            </View>
+        {/* Error Message Display */}
+        {errorMessage ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{errorMessage}</Text>
           </View>
-          <TouchableOpacity
-            style={styles.notificationButton}
-            onPress={() => router.push('/notification')}
-            accessibilityRole="button"
-            accessibilityLabel="View notifications"
-          >
-            <View style={styles.navIconContainer}>
-              <Feather name="bell" size={24} color="#ff5722" />
-              {notificationCount > 0 && (
-                <View style={styles.navBadge}>
-                  <Text style={styles.navBadgeText}>{notificationCount}</Text>
+        ) : (
+          <>
+            {/* Header */}
+            <View style={[styles.header, { paddingTop: insets.top, backgroundColor: '#ffffff' }]}>
+              <View style={styles.userInfo}>
+                <TouchableOpacity onPress={() => router.push('/profile')} accessibilityRole="button" accessibilityLabel="Go to profile">
+                  <Image source={PLACEHOLDER_AVATAR} style={styles.avatar} />
+                </TouchableOpacity>
+                <View>
+                  <Text style={styles.greeting}>Hello {name || 'User'}</Text>
+                  <View style={styles.location}>
+                    <Feather name="map-pin" size={16} color="#4ade80" />
+                    <Text style={styles.locationText}>{location || 'N.Y Bronx'}</Text>
+                  </View>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.notificationButton}
+                onPress={() => router.push('/notification')}
+                accessibilityRole="button"
+                accessibilityLabel="View notifications"
+              >
+                <View style={styles.navIconContainer}>
+                  <Feather name="bell" size={24} color="#ff5722" />
+                  {notificationCount > 0 && (
+                    <View style={styles.navBadge}>
+                      <Text style={styles.navBadgeText}>{notificationCount}</Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Section */}
+            <View style={styles.searchSection}>
+              <Text style={styles.searchTitle}>What Service Do You Want?</Text>
+              <View style={styles.searchInputContainer}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder='Search Any recipe..'
+                  placeholderTextColor="#999"
+                  value={searchQuery}
+                  onChangeText={handleSearch}
+                  onKeyPress={handleKeyPress}
+                />
+                <TouchableOpacity onPress={handleSearchIconPress}>
+                  <Feather name="search" size={20} color="#666" style={styles.searchIcon} />
+                </TouchableOpacity>
+              </View>
+              {suggestions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  {suggestions.map((suggestion, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      onPress={() => router.push({
+                        pathname: '/search-results',
+                        params: { query: suggestion },
+                      })}
+                    >
+                      <Text style={styles.suggestionText}>{suggestion}</Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
               )}
             </View>
-          </TouchableOpacity>
-        </View>
 
-        {/* Search Section */}
-        <View style={styles.searchSection}>
-          <Text style={styles.searchTitle}>What Service Do You Want?</Text>
-          <View style={styles.searchInputContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder='Search Any recipe..'
-              placeholderTextColor="#999"
-              value={searchQuery}
-              onChangeText={handleSearch}
-              onKeyPress={handleKeyPress}
-            />
-            <TouchableOpacity onPress={handleSearchIconPress}>
-              <Feather name="search" size={20} color="#666" style={styles.searchIcon} />
-            </TouchableOpacity>
-          </View>
-          {suggestions.length > 0 && (
-            <View style={styles.suggestionsContainer}>
-              {suggestions.map((suggestion, index) => (
+            {/* Promotional Banner */}
+            <View style={styles.promoBanner}>
+              <View style={styles.promoTextContainer}>
+                <Text style={styles.promoTitle}>
+                  Fast Bites<Text>{"\n"}</Text>Faster Orders.
+                </Text>
+                <Text style={styles.promoSubtitle}>Satisfy Your Cravings</Text>
+                <TouchableOpacity
+                  style={styles.orderNowButton}
+                  onPress={() => router.push('/order-now')}
+                >
+                  <Text style={styles.orderNowButtonText}>Order Now</Text>
+                </TouchableOpacity>
+              </View>
+              <Image source={PLACEHOLDER_RECIPE} style={styles.promoBurgerImage} />
+            </View>
+
+            {/* Service Categories */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Service Categories</Text>
+              <TouchableOpacity>
+                <Ionicons name="arrow-forward" size={20} color="black" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
+              {categories.map((category, index) => (
                 <TouchableOpacity
                   key={index}
-                  onPress={() => router.push({
-                    pathname: '/search-results',
-                    params: { query: suggestion },
-                  })}
+                  style={styles.categoryItem}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/categories',
+                      params: { id: category.id, name: category.name },
+                    })
+                  }
+                  accessibilityRole="button"
+                  accessibilityLabel={`View ${category.name} recipes`}
                 >
-                  <Text style={styles.suggestionText}>{suggestion}</Text>
+                  <View style={styles.categoryImageWrapper}>
+                    <Image
+                      source={
+                        category.image_url
+                          ? { uri: `https://cravii.ng/cravii/api/restaurant/${category.image_url}` }
+                          : PLACEHOLDER_CATEGORY
+                      }
+                      style={styles.categoryImage}
+                      onError={(e) => console.log(`Image load error for ${category.image_url}:`, e.nativeEvent.error)}
+                    />
+                  </View>
+                  <Text style={styles.categoryName}>{category.name}</Text>
                 </TouchableOpacity>
               ))}
+            </ScrollView>
+
+            {/* Popular Recipes */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Popular Recipes</Text>
+              <TouchableOpacity onPress={() => router.push('/order-now')}>
+                <Text style={styles.seeMoreText}>See More</Text>
+              </TouchableOpacity>
             </View>
-          )}
-        </View>
-
-        {/* Promotional Banner */}
-        <View style={styles.promoBanner}>
-          <View style={styles.promoTextContainer}>
-            <Text style={styles.promoTitle}>
-              Fast Bites<Text>{"\n"}</Text>Faster Orders.
-            </Text>
-            <Text style={styles.promoSubtitle}>Satisfy Your Cravings</Text>
-            <TouchableOpacity
-              style={styles.orderNowButton}
-              onPress={() => router.push('/order-now')}
-            >
-              <Text style={styles.orderNowButtonText}>Order Now</Text>
-            </TouchableOpacity>
-          </View>
-          <Image source={PLACEHOLDER_RECIPE} style={styles.promoBurgerImage} />
-        </View>
-
-        {/* Service Categories */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Service Categories</Text>
-          <TouchableOpacity>
-            <Ionicons name="arrow-forward" size={20} color="black" />
-          </TouchableOpacity>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoriesScroll}>
-          {categories.map((category, index) => (
-            <TouchableOpacity
-              key={index}
-              style={styles.categoryItem}
-              onPress={() =>
-                router.push({
-                  pathname: '/categories',
-                  params: { id: category.id, name: category.name },
-                })
-              }
-              accessibilityRole="button"
-              accessibilityLabel={`View ${category.name} recipes`}
-            >
-              <View style={styles.categoryImageWrapper}>
-                <Image
-                  source={
-                    category.image_url
-                      ? { uri: `https://cravii.ng/cravii/api/restaurant/${category.image_url}` }
-                      : PLACEHOLDER_CATEGORY
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recipesScroll}>
+              {popularRecipes.map((recipe) => (
+                <RecipeCard
+                  key={recipe.id}
+                  recipe={recipe}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/recipe-details',
+                      params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
+                    })
                   }
-                  style={styles.categoryImage}
-                  onError={(e) => console.log(`Image load error for ${category.image_url}:`, e.nativeEvent.error)}
+                  onLikeToggle={() => toggleLike(recipe)}
+                  isLiked={likedRecipes.includes(recipe.id)}
                 />
-              </View>
-              <Text style={styles.categoryName}>{category.name}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              ))}
+            </ScrollView>
 
-        {/* Popular Recipes */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Popular Recipes</Text>
-          <TouchableOpacity onPress={() => router.push('/order-now')}>
-            <Text style={styles.seeMoreText}>See More</Text>
-          </TouchableOpacity>
-        </View>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.recipesScroll}>
-          {popularRecipes.map((recipe) => (
-            <RecipeCard
-              key={recipe.id}
-              recipe={recipe}
-              onPress={() =>
-                router.push({
-                  pathname: '/recipe-details',
-                  params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
-                })
-              }
-              onLikeToggle={() => toggleLike(recipe)}
-              isLiked={likedRecipes.includes(recipe.id)}
-            />
-          ))}
-        </ScrollView>
-
-        {/* More Recipes */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>More Recipes</Text>
-          <TouchableOpacity onPress={() => router.push('/order-now')}>
-            <Text style={styles.seeMoreText}>See More</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.recipeList}>
-          {moreRecipes.length > 0 ? (
-            moreRecipes.map((recipe) => (
-              <RecipeCard
-                key={recipe.id}
-                recipe={recipe}
-                isMoreRecipes
-                onPress={() =>
-                  router.push({
-                    pathname: '/recipe-details',
-                    params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
-                  })
-                }
-                onLikeToggle={() => toggleLike(recipe)}
-                isLiked={likedRecipes.includes(recipe.id)}
-              />
-            ))
-          ) : (
-            <Text style={styles.noRecipesText}>No more recipes available</Text>
-          )}
-        </View>
+            {/* More Recipes */}
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>More Recipes</Text>
+              <TouchableOpacity onPress={() => router.push('/order-now')}>
+                <Text style={styles.seeMoreText}>See More</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.recipeList}>
+              {moreRecipes.length > 0 ? (
+                moreRecipes.map((recipe) => (
+                  <RecipeCard
+                    key={recipe.id}
+                    recipe={recipe}
+                    isMoreRecipes
+                    onPress={() =>
+                      router.push({
+                        pathname: '/recipe-details',
+                        params: { id: recipe.id, name: recipe.name, description: recipe.description, price: recipe.price, image_url: recipe.image_url },
+                      })
+                    }
+                    onLikeToggle={() => toggleLike(recipe)}
+                    isLiked={likedRecipes.includes(recipe.id)}
+                  />
+                ))
+              ) : (
+                <Text style={styles.noRecipesText}>No more recipes available</Text>
+              )}
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* Bottom Navigation */}
@@ -872,5 +895,19 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  errorContainer: {
+    padding: 20,
+    backgroundColor: '#ffe6e6',
+    marginHorizontal: 20,
+    borderRadius: 10,
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#e63946',
+    fontWeight: '600',
+    textAlign: 'center',
   },
 });

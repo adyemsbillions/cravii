@@ -5,7 +5,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { Alert, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Dimensions, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 interface Recipe {
@@ -27,7 +27,8 @@ const fetchWithRetry = async (
   url: string,
   options: RequestInit = {},
   retries: number = 4,
-  initialDelay: number = 300
+  initialDelay: number = 300,
+  timeout: number = 10000 // 10 seconds timeout
 ): Promise<Response> => {
   const userAgents = [
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
@@ -52,43 +53,54 @@ const fetchWithRetry = async (
     }
 
     try {
+      // Create an AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
       const response = await fetch(url, {
         ...options,
         headers: defaultHeaders,
         credentials: 'include',
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
+
       if (!response.ok) {
         const errorText = await response.text();
         const responseHeaders = Object.fromEntries(response.headers.entries());
-        console.error(
-          `Fetch attempt ${i + 1} of ${retries} failed for ${url}: [Error: HTTP ${response.status}] - ${errorText}`,
-          {
-            headers: responseHeaders,
-            payload: options.body ? JSON.parse(options.body as string) : null,
-          }
-        );
+        if (__DEV__) {
+          console.error(
+            `Fetch attempt ${i + 1} of ${retries} failed for ${url}: [Error: HTTP ${response.status}] - ${errorText}`,
+            {
+              headers: responseHeaders,
+              payload: options.body ? JSON.parse(options.body as string) : null,
+            }
+          );
+        }
         if (response.status === 403 && i < retries - 1) {
           const delay = initialDelay * Math.pow(2, i);
-          console.log(`Waiting ${delay}ms before retrying with User-Agent: ${currentUserAgent}...`);
+          if (__DEV__) console.log(`Waiting ${delay}ms before retrying with User-Agent: ${currentUserAgent}...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
         throw new Error(`HTTP ${response.status} - ${errorText}`);
       }
-      console.log(`Fetch succeeded for ${url} on attempt ${i + 1}`);
+
+      if (__DEV__) console.log(`Fetch succeeded for ${url} on attempt ${i + 1}`);
       const setCookie = response.headers.get('set-cookie');
       if (setCookie) {
         await AsyncStorage.setItem('sessionCookie', setCookie);
       }
       return response;
-    } catch (error) {
-      console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
+    } catch (error: any) {
+      if (__DEV__) console.error(`Fetch attempt ${i + 1} of ${retries} failed for ${url}:`, error);
       if (i < retries - 1) {
         const delay = initialDelay * Math.pow(2, i);
-        console.log(`Waiting ${delay}ms before retrying...`);
+        if (__DEV__) console.log(`Waiting ${delay}ms before retrying...`);
         await new Promise((resolve) => setTimeout(resolve, delay));
       } else {
-        throw error;
+        throw new Error(`Fetch failed after ${retries} attempts: ${error.message}`);
       }
     }
   }
@@ -108,86 +120,116 @@ export default function RecipeDetails() {
 
   const [recipe, setRecipe] = useState<Recipe | null>(null);
   const [restaurantName, setRestaurantName] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+  const [retryCount, setRetryCount] = useState<number>(0);
+  const MAX_RETRIES = 3;
 
-  useEffect(() => {
-    const fetchRecipeDetails = async () => {
-      try {
-        // Fetch user data to get location
-        const userId = await AsyncStorage.getItem('id');
-        if (userId) {
-          try {
-            const userResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${userId}`, {
-              method: 'GET',
-              credentials: 'include',
-            });
-            const userResult = await userResponse.json();
-            console.log('User API response:', userResult);
-            if (userResult.success) {
-              await AsyncStorage.setItem('userLocation', userResult.data.location || 'N.Y Bronx');
-            } else {
-              console.error('User fetch failed:', userResult?.message || 'Unknown error');
-              await AsyncStorage.setItem('userLocation', 'N.Y Bronx');
-            }
-          } catch (userError) {
-            console.error('User fetch failed:', userError);
+  const fetchRecipeDetails = async () => {
+    try {
+      setLoading(true);
+      setErrorMessage(""); // Clear previous error messages
+
+      // Check for cached recipe data
+      const cachedRecipe = await AsyncStorage.getItem(`recipe_${id}`);
+      if (cachedRecipe) {
+        setRecipe(JSON.parse(cachedRecipe));
+      }
+
+      const cachedRestaurant = await AsyncStorage.getItem(`restaurant_${id}`);
+      if (cachedRestaurant) {
+        setRestaurantName(JSON.parse(cachedRestaurant).name);
+      }
+
+      // Fetch user data to get location
+      const userId = await AsyncStorage.getItem('id');
+      if (userId) {
+        try {
+          const userResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_user.php?id=${userId}`, {
+            method: 'GET',
+            credentials: 'include',
+          });
+          const userResult = await userResponse.json();
+          if (__DEV__) console.log('User API response:', userResult);
+          if (userResult.success) {
+            await AsyncStorage.setItem('userLocation', userResult.data.location || 'N.Y Bronx');
+          } else {
+            if (__DEV__) console.error('User fetch failed:', userResult?.message || 'Unknown error');
             await AsyncStorage.setItem('userLocation', 'N.Y Bronx');
           }
-        } else {
-          console.warn('No user ID found. Defaulting to fallback location.');
+        } catch (userError: any) {
+          if (__DEV__) console.error('User fetch failed:', userError);
           await AsyncStorage.setItem('userLocation', 'N.Y Bronx');
         }
-
-        // Fetch recipe details
-        const response = await fetchWithRetry(`https://cravii.ng/cravii/api/get_recipe.php?id=${id}`, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        const result = await response.json();
-        if (result.success) {
-          setRecipe(result.data);
-          if (result.data.restaurantId) {
-            const restaurantResponse = await fetchWithRetry(
-              `https://cravii.ng/cravii/api/get_restaurant.php?id=${result.data.restaurantId}`,
-              {
-                method: 'GET',
-                credentials: 'include',
-              }
-            );
-            const restaurantResult = await restaurantResponse.json();
-            if (restaurantResult.success) {
-              setRestaurantName(restaurantResult.data.name);
-            } else {
-              console.error('Failed to fetch restaurant name:', restaurantResult.message);
-              setRestaurantName('Unknown Restaurant');
-            }
-          }
-        } else {
-          console.error('Failed to fetch recipe details:', result.message);
-          Alert.alert('Error', 'Failed to load recipe details. Please try again.');
-        }
-      } catch (error) {
-        console.error('Error fetching recipe details:', error);
-        Alert.alert('Error', 'Failed to load recipe details. Please check your connection and try again.');
+      } else {
+        if (__DEV__) console.warn('No user ID found. Defaulting to fallback location.');
+        await AsyncStorage.setItem('userLocation', 'N.Y Bronx');
       }
-    };
+
+      // Fetch recipe details
+      const response = await fetchWithRetry(`https://cravii.ng/cravii/api/get_recipe.php?id=${id}`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      const result = await response.json();
+      if (result.success) {
+        setRecipe(result.data);
+        await AsyncStorage.setItem(`recipe_${id}`, JSON.stringify(result.data));
+        if (result.data.restaurantId) {
+          const restaurantResponse = await fetchWithRetry(
+            `https://cravii.ng/cravii/api/get_restaurant.php?id=${result.data.restaurantId}`,
+            {
+              method: 'GET',
+              credentials: 'include',
+            }
+          );
+          const restaurantResult = await restaurantResponse.json();
+          if (restaurantResult.success) {
+            setRestaurantName(restaurantResult.data.name);
+            await AsyncStorage.setItem(`restaurant_${id}`, JSON.stringify(restaurantResult.data));
+          } else {
+            if (__DEV__) console.error('Failed to fetch restaurant name:', restaurantResult.message);
+            setRestaurantName('Unknown Restaurant');
+          }
+        }
+      } else {
+        if (__DEV__) console.error('Failed to fetch recipe details:', result.message);
+        setErrorMessage('Failed to load recipe details. Please try again.');
+      }
+    } catch (error: any) {
+      if (error.message.includes('Network request failed') || error.message.includes('Fetch failed after') || error.name === 'AbortError') {
+        setErrorMessage(retryCount >= MAX_RETRIES ? 'Still no connection. Please check your internet and try again later.' : 'Internet is not stable');
+      } else {
+        setErrorMessage('Failed to load recipe details. Please try again.');
+        if (__DEV__) console.error('Error fetching recipe details:', error);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchRecipeDetails();
   }, [id]);
+
+  const handleRetry = () => {
+    if (retryCount < MAX_RETRIES) {
+      setRetryCount(retryCount + 1);
+      fetchRecipeDetails();
+    }
+  };
 
   const handleAddToCart = async () => {
     try {
       if (!recipe) {
-        Alert.alert('Error', 'Recipe details not loaded. Please try again.');
+        setErrorMessage('Recipe details not loaded. Please try again.');
         return;
       }
       const cart = await AsyncStorage.getItem('cart');
       const cartItems = cart ? JSON.parse(cart) : [];
       const itemExists = cartItems.some((item: Recipe) => item.id === id);
       if (itemExists) {
-        Alert.alert(
-          'Item Already in Cart',
-          `${recipe.name} is already in your cart. You can adjust the quantity in the cart.`,
-          [{ text: 'Go to Cart', onPress: () => router.push('/cart') }, { text: 'OK' }],
-        );
+        setErrorMessage(`${recipe.name} is already in your cart. You can adjust the quantity in the cart.`);
         return;
       }
       const newItem = {
@@ -202,11 +244,11 @@ export default function RecipeDetails() {
       };
       cartItems.push(newItem);
       await AsyncStorage.setItem('cart', JSON.stringify(cartItems));
-      console.log(`Added ${recipe.name} to cart`);
+      if (__DEV__) console.log(`Added ${recipe.name} to cart`);
       router.push('/cart');
     } catch (error) {
-      console.error('Error adding to cart:', error);
-      Alert.alert('Error', 'Failed to add item to cart. Please try again.');
+      if (__DEV__) console.error('Error adding to cart:', error);
+      setErrorMessage('Failed to add item to cart. Please try again.');
     }
   };
 
@@ -214,22 +256,50 @@ export default function RecipeDetails() {
     <View style={styles.container}>
       <View style={[styles.statusBarPlaceholder, { backgroundColor: '#ffffff' }]} />
       <ScrollView style={styles.scrollViewContent} contentContainerStyle={{ paddingBottom: insets.bottom + 80 }}>
-        <Image
-          source={
-            recipe?.image_url ? { uri: `https://cravii.ng/cravii/api/uploads/${recipe.image_url}` } : PLACEHOLDER_RECIPE
-          }
-          style={styles.detailImage}
-          onError={(e) => console.log(`Image load error for ${recipe?.image_url}:`, e.nativeEvent.error)}
-        />
-        <View style={styles.detailsContainer}>
-          <Text style={styles.detailName}>{recipe?.name || 'Recipe Name'}</Text>
-          <Text style={styles.restaurantName}>From: {restaurantName || 'Unknown Restaurant'}</Text>
-          <Text style={styles.detailDescription}>{recipe?.description || 'No description available.'}</Text>
-          <Text style={styles.detailPrice}>{`₦${recipe?.price || '0.00'}`}</Text>
-          <TouchableOpacity style={styles.addToCartButton} onPress={handleAddToCart}>
-            <Text style={styles.addToCartText}>Add to Cart</Text>
-          </TouchableOpacity>
-        </View>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#ff5722" />
+            <Text style={styles.loadingText}>Loading recipe details...</Text>
+          </View>
+        ) : errorMessage && !recipe ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{errorMessage}</Text>
+            {retryCount < MAX_RETRIES && (
+              <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <>
+            <Image
+              source={
+                recipe?.image_url ? { uri: `https://cravii.ng/cravii/api/uploads/${recipe.image_url}` } : PLACEHOLDER_RECIPE
+              }
+              style={styles.detailImage}
+              onError={(e) => { if (__DEV__) console.log(`Image load error for ${recipe?.image_url}:`, e.nativeEvent.error); }}
+            />
+            <View style={styles.detailsContainer}>
+              <Text style={styles.detailName}>{recipe?.name || name || 'Recipe Name'}</Text>
+              <Text style={styles.restaurantName}>From: {restaurantName || 'Unknown Restaurant'}</Text>
+              <Text style={styles.detailDescription}>{recipe?.description || description || 'No description available.'}</Text>
+              <Text style={styles.detailPrice}>{`₦${recipe?.price || price || '0.00'}`}</Text>
+              {errorMessage && (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{errorMessage}</Text>
+                  {retryCount < MAX_RETRIES && (
+                    <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+                      <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              <TouchableOpacity style={styles.addToCartButton} onPress={handleAddToCart}>
+                <Text style={styles.addToCartText}>Add to Cart</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
       <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
         <Feather name='arrow-left' size={24} color='#fff' />
@@ -353,5 +423,45 @@ const styles = StyleSheet.create({
     elevation: 6,
     borderWidth: 2,
     borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  errorContainer: {
+    padding: 20,
+    backgroundColor: '#ffe6e6',
+    marginHorizontal: 20,
+    borderRadius: 10,
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#e63946',
+    fontWeight: '600',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#ff5722',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
+  retryButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    marginTop: 10,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#333',
+    marginTop: 10,
+    fontWeight: '600',
   },
 });
