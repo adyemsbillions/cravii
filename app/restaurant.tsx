@@ -34,8 +34,17 @@ interface Recipe {
   image_url: string;
   category_id: string;
   restaurantId: string | number;
-  vat_fee?: string;
-  delivery_fee?: string;
+  vat_fee: string;
+  delivery_fee: string;
+}
+
+interface CartItem {
+  id: string;
+  name: string;
+  price: string;
+  image_url: string;
+  restaurantId: string | number;
+  quantity: number;
 }
 
 interface Category {
@@ -63,7 +72,6 @@ interface ApiResponse<T> {
 const RecipeCard = memo(
   ({
     recipe,
-    restaurantName,
     onPress,
     onLikeToggle,
     onVerify,
@@ -71,7 +79,6 @@ const RecipeCard = memo(
     isMoreRecipes,
   }: {
     recipe: Recipe;
-    restaurantName: string;
     onPress: () => void;
     onLikeToggle: () => void;
     onVerify: () => void;
@@ -112,9 +119,6 @@ const RecipeCard = memo(
       </View>
       <View style={[styles.recipeInfo, isMoreRecipes ? styles.moreRecipeInfo : {}]}>
         <Text style={[styles.recipeName, isMoreRecipes ? styles.moreRecipeName : {}]}>{recipe.name}</Text>
-        <Text style={styles.restaurantName}>
-          {restaurantName.length > 5 ? restaurantName.slice(0, 5) + '..' : restaurantName || 'Unknown'}
-        </Text>
         <Text
           style={[styles.recipeDescription, isMoreRecipes ? styles.moreRecipeDescription : {}]}
           numberOfLines={2}
@@ -157,7 +161,8 @@ export default function Restaurant() {
   // State for search
   const [searchQuery, setSearchQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  // State for notification count
+  // State for cart and notification counts
+  const [cartCount, setCartCount] = useState(0);
   const [notificationCount, setNotificationCount] = useState(0);
   // State for liked recipes
   const [likedRecipes, setLikedRecipes] = useState<string[]>([]);
@@ -391,19 +396,38 @@ export default function Restaurant() {
         setMoreRecipes([]);
       }
 
-      // Fetch notification count
-      const notificationsResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_notifications.php?user_id=${id}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      const notificationsResult = await notificationsResponse.json();
-      if (notificationsResult.success) {
-        const unreadCount = notificationsResult.data.filter((notification: { is_read: boolean }) => !notification.is_read).length;
+      // Fetch cart count
+      const cart = await AsyncStorage.getItem('cart');
+      const cartItems: CartItem[] = cart ? JSON.parse(cart) : [];
+      const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+      setCartCount(totalItems);
+
+      // Fetch notification count with auth token
+      try {
+        const token = await AsyncStorage.getItem('auth_token');
+        const headers: { [key: string]: string } = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        
+        const notificationsResponse = await fetchWithRetry(`https://cravii.ng/cravii/api/get_notifications.php?user_id=${id}`, {
+          method: 'GET',
+          headers,
+          credentials: 'include',
+        });
+        const notificationsResult = await notificationsResponse.json();
+        if (notificationsResult.success) {
+          const unreadCount = notificationsResult.data.filter((notification: { is_read: boolean }) => !notification.is_read).length;
+          setNotificationCount(unreadCount);
+          await AsyncStorage.setItem('notifications', JSON.stringify(notificationsResult.data));
+        } else {
+          if (__DEV__) console.error('Failed to fetch notifications:', notificationsResult.message);
+          setNotificationCount(0);
+        }
+      } catch (notificationError: any) {
+        if (__DEV__) console.error('Notification fetch failed:', notificationError);
+        // Fallback to cached notifications
+        const notifications = await AsyncStorage.getItem('notifications');
+        const unreadCount = notifications ? JSON.parse(notifications).filter((n: { is_read: boolean }) => !n.is_read).length : 0;
         setNotificationCount(unreadCount);
-        await AsyncStorage.setItem('notifications', JSON.stringify(notificationsResult.data));
-      } else {
-        if (__DEV__) console.error('Failed to fetch notifications:', notificationsResult.message);
-        setNotificationCount(0);
       }
 
       // Fetch liked recipes
@@ -589,7 +613,6 @@ export default function Restaurant() {
             <RecipeCard
               key={recipe.id}
               recipe={recipe}
-              restaurantName={restaurants[recipe.restaurantId] || 'Unknown'}
               onPress={() =>
                 router.push({
                   pathname: '/recipe-details',
@@ -616,7 +639,6 @@ export default function Restaurant() {
               <RecipeCard
                 key={recipe.id}
                 recipe={recipe}
-                restaurantName={restaurants[recipe.restaurantId] || 'Unknown'}
                 isMoreRecipes
                 onPress={() =>
                   router.push({
@@ -648,6 +670,11 @@ export default function Restaurant() {
         <TouchableOpacity style={styles.navItem} onPress={() => router.push('/cart')}>
           <View style={styles.navIconContainer}>
             <Feather name="shopping-cart" size={24} color="#999" />
+            {cartCount > 0 && (
+              <View style={styles.navBadge}>
+                <Text style={styles.navBadgeText}>{cartCount}</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.navText}>My Cart</Text>
         </TouchableOpacity>
@@ -945,10 +972,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   recipeInfo: {
-    padding: 15,
+    padding: 12,
   },
   moreRecipeInfo: {
-    padding: 10,
+    padding: 8,
   },
   recipeName: {
     fontSize: 18,
@@ -958,17 +985,6 @@ const styles = StyleSheet.create({
   },
   moreRecipeName: {
     fontSize: 17,
-  },
-  restaurantName: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#10b981',
-    marginBottom: 5,
-    backgroundColor: '#ecfdf5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 10,
-    alignSelf: 'flex-start',
   },
   recipeDescription: {
     fontSize: 12,
