@@ -86,7 +86,7 @@ export default function HomeScreen() {
 
             {/* Social Login Grid */}
             <View style={styles.socialSection}>
-              <Text style={styles.orText}>Or continue with</Text>
+              <Text style={styles.orText}>Lets match on</Text>
               <View style={styles.socialGrid}>
                 <TouchableOpacity style={styles.socialCard}>
                   <Feather name="shopping-bag" size={28} color="#3b5998" />

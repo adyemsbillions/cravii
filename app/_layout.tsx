@@ -1,3 +1,4 @@
+
 import { Stack } from 'expo-router';
 
 export default function RootLayout() {
@@ -52,6 +53,12 @@ export default function RootLayout() {
       <Stack.Screen
         name="influencers"
         options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="orders"
+        options={{
           headerShown: false, // Consistent with other screens
         }}
       />
@@ -59,7 +66,7 @@ export default function RootLayout() {
         name="admin"
         options={{
           title: 'Admin Panel',
-          headerShown: true, // Only show header for admin if needed
+          headerShown: true, // Only show header for admin
           headerStyle: { backgroundColor: '#f97316' },
           headerTintColor: '#fff',
         }}

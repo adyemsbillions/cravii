@@ -385,6 +385,14 @@ const Search: React.FC = () => {
               ))}
             </View>
           </View>
+          <TouchableOpacity
+            style={styles.searchRestaurantsButton}
+            onPress={() => router.push('/rest')}
+            accessibilityRole="button"
+            accessibilityLabel="Search Restaurants"
+          >
+            <Text style={styles.searchRestaurantsButtonText}>Search Restaurants</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Search Results */}
@@ -578,18 +586,18 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   recipeList: {
-    flexDirection: 'row', // Arrange cards in a row
-    flexWrap: 'wrap', // Allow wrapping to next line
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 10,
     paddingBottom: 20,
-    justifyContent: 'space-between', // Space cards evenly
+    justifyContent: 'space-between',
   },
   recipeCard: {
     backgroundColor: '#fff',
     borderRadius: 20,
-    width: (width - 40) / 2, // Two cards per row with padding
-    marginHorizontal: 5, // Space between cards
-    marginBottom: 20, // Space between rows
+    width: (width - 40) / 2,
+    marginHorizontal: 5,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -599,13 +607,13 @@ const styles = StyleSheet.create({
   },
   recipeImage: {
     width: '100%',
-    height: 120, // Reduced height
+    height: 120,
     resizeMode: 'cover',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
   recipeInfo: {
-    padding: 10, // Reduced padding
+    padding: 10,
   },
   recipeName: {
     fontSize: 18,
@@ -614,7 +622,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   recipeDescription: {
-    fontSize: 12, // Reduced font size
+    fontSize: 12,
     color: '#666',
     marginBottom: 10,
   },
@@ -628,7 +636,7 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     marginTop: 20,
-    width: '100%', // Ensure it spans the container
+    width: '100%',
   },
   bottomNav: {
     flexDirection: 'row',
@@ -663,6 +671,18 @@ const styles = StyleSheet.create({
     color: '#ff5722',
     marginTop: 4,
     fontWeight: '700',
+  },
+  searchRestaurantsButton: {
+    backgroundColor: '#ff5722',
+    borderRadius: 15,
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  searchRestaurantsButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

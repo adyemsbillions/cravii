@@ -470,12 +470,14 @@ export default function Checkout() {
           <Text style={styles.sectionTitle}>Delivery Information</Text>
         </View>
         <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>City</Text>
           <TextInput
             style={styles.input}
             placeholder="City"
             value={deliveryAddress}
             onChangeText={setDeliveryAddress}
           />
+          <Text style={styles.inputLabel}>Phone Number</Text>
           <TextInput
             style={styles.input}
             placeholder="Phone Number"
@@ -483,12 +485,14 @@ export default function Checkout() {
             onChangeText={setPhoneNumber}
             keyboardType="phone-pad"
           />
+          <Text style={styles.inputLabel}>Delivery Location</Text>
           <TextInput
             style={styles.input}
             placeholder="Delivery Location"
             value={userLocation}
             onChangeText={setUserLocation}
           />
+          <Text style={styles.inputLabel}>Coupon Code</Text>
           <TextInput
             style={styles.input}
             placeholder="Enter Coupon Code"
@@ -815,6 +819,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     marginBottom: 10,
     backgroundColor: '#fff',
+  },
+  inputLabel: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+    marginBottom: 5,
+    marginLeft: 5,
   },
   applyCouponButton: {
     backgroundColor: '#ff5722',
